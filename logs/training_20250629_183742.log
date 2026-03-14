@@ -1,0 +1,39 @@
+2025-06-29 18:37:42,441 - __main__ - INFO - === Enhanced NBA Prediction Model Training ===
+2025-06-29 18:37:42,441 - __main__ - INFO - Started at: 2025-06-29 18:37:42
+2025-06-29 18:37:42,442 - __main__ - INFO - All required dependencies found
+2025-06-29 18:37:42,443 - __main__ - INFO - Initializing prediction system...
+2025-06-29 18:37:42,629 - root - INFO - Enhanced models loaded successfully
+2025-06-29 18:37:42,629 - root - INFO - Enhanced models loaded successfully
+2025-06-29 18:37:42,629 - __main__ - INFO - Running in evaluation-only mode...
+2025-06-29 18:37:42,629 - __main__ - INFO - Evaluating models on 30 recent games...
+2025-06-29 18:37:46,301 - root - ERROR - Error predicting team score: The feature names should match those that were passed during fit.
+Feature names must be in the same order as they were in fit.
+
+2025-06-29 18:37:46,328 - root - ERROR - Error predicting team score: The feature names should match those that were passed during fit.
+Feature names must be in the same order as they were in fit.
+
+2025-06-29 18:37:46,375 - root - ERROR - Error predicting team score: The feature names should match those that were passed during fit.
+Feature names must be in the same order as they were in fit.
+
+2025-06-29 18:37:46,402 - root - ERROR - Error predicting team score: The feature names should match those that were passed during fit.
+Feature names must be in the same order as they were in fit.
+
+2025-06-29 18:37:46,447 - root - ERROR - Error predicting team score: The feature names should match those that were passed during fit.
+Feature names must be in the same order as they were in fit.
+
+2025-06-29 18:37:46,476 - root - ERROR - Error predicting team score: The feature names should match those that were passed during fit.
+Feature names must be in the same order as they were in fit.
+
+2025-06-29 18:37:49,663 - root - ERROR - NBA API error for team 1610612741: 'resultSet'
+2025-06-29 18:37:56,325 - root - ERROR - Error predicting team score: The feature names should match those that were passed during fit.
+Feature names must be in the same order as they were in fit.
+
+2025-06-29 18:38:03,389 - root - ERROR - NBA API error for team 1610612760: 'resultSet'
+2025-06-29 18:38:09,791 - root - ERROR - Error predicting team score: The feature names should match those that were passed during fit.
+Feature names must be in the same order as they were in fit.
+
+2025-06-29 18:38:17,572 - root - ERROR - NBA API error for team 1610612743: 'resultSet'
+2025-06-29 18:38:24,477 - root - ERROR - Error predicting team score: The feature names should match those that were passed during fit.
+Feature names must be in the same order as they were in fit.
+
+2025-06-29 18:38:29,476 - __main__ - INFO - Training interrupted by user

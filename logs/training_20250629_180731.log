@@ -1,0 +1,39 @@
+2025-06-29 18:07:31,353 - __main__ - INFO - === Enhanced NBA Prediction Model Training ===
+2025-06-29 18:07:31,353 - __main__ - INFO - Started at: 2025-06-29 18:07:31
+2025-06-29 18:07:31,354 - __main__ - INFO - All required dependencies found
+2025-06-29 18:07:31,355 - __main__ - INFO - Initializing prediction system...
+2025-06-29 18:07:31,762 - root - INFO - Enhanced models loaded successfully
+2025-06-29 18:07:31,762 - root - INFO - Enhanced models loaded successfully
+2025-06-29 18:07:31,762 - __main__ - INFO - Running in evaluation-only mode...
+2025-06-29 18:07:31,762 - __main__ - INFO - Evaluating models on 30 recent games...
+2025-06-29 18:07:32,554 - root - ERROR - Error evaluating game 0022300061: 'HOME_TEAM_ID'
+2025-06-29 18:07:32,554 - root - ERROR - Error evaluating game 0022300061: 'HOME_TEAM_ID'
+2025-06-29 18:07:32,554 - root - ERROR - Error evaluating game 0022300062: 'HOME_TEAM_ID'
+2025-06-29 18:07:32,555 - root - ERROR - Error evaluating game 0022300062: 'HOME_TEAM_ID'
+2025-06-29 18:07:32,555 - root - ERROR - Error evaluating game 0022300070: 'HOME_TEAM_ID'
+2025-06-29 18:07:32,555 - root - ERROR - Error evaluating game 0022300072: 'HOME_TEAM_ID'
+2025-06-29 18:07:32,555 - root - ERROR - Error evaluating game 0022300066: 'HOME_TEAM_ID'
+2025-06-29 18:07:32,556 - root - ERROR - Error evaluating game 0022300070: 'HOME_TEAM_ID'
+2025-06-29 18:07:32,556 - root - ERROR - Error evaluating game 0022300066: 'HOME_TEAM_ID'
+2025-06-29 18:07:32,556 - root - ERROR - Error evaluating game 0022300065: 'HOME_TEAM_ID'
+2025-06-29 18:07:32,556 - root - ERROR - Error evaluating game 0022300071: 'HOME_TEAM_ID'
+2025-06-29 18:07:32,556 - root - ERROR - Error evaluating game 0022300071: 'HOME_TEAM_ID'
+2025-06-29 18:07:32,558 - root - ERROR - Error evaluating game 0022300063: 'HOME_TEAM_ID'
+2025-06-29 18:07:32,558 - root - ERROR - Error evaluating game 0022300069: 'HOME_TEAM_ID'
+2025-06-29 18:07:32,558 - root - ERROR - Error evaluating game 0022300074: 'HOME_TEAM_ID'
+2025-06-29 18:07:32,559 - root - ERROR - Error evaluating game 0022300067: 'HOME_TEAM_ID'
+2025-06-29 18:07:32,559 - root - ERROR - Error evaluating game 0022300067: 'HOME_TEAM_ID'
+2025-06-29 18:07:32,559 - root - ERROR - Error evaluating game 0022300073: 'HOME_TEAM_ID'
+2025-06-29 18:07:32,559 - root - ERROR - Error evaluating game 0022300068: 'HOME_TEAM_ID'
+2025-06-29 18:07:32,559 - root - ERROR - Error evaluating game 0022300069: 'HOME_TEAM_ID'
+2025-06-29 18:07:32,559 - root - ERROR - Error evaluating game 0022300072: 'HOME_TEAM_ID'
+2025-06-29 18:07:32,561 - root - ERROR - Error evaluating game 0022300063: 'HOME_TEAM_ID'
+2025-06-29 18:07:32,561 - root - ERROR - Error evaluating game 0022300065: 'HOME_TEAM_ID'
+2025-06-29 18:07:32,561 - root - ERROR - Error evaluating game 0022300064: 'HOME_TEAM_ID'
+2025-06-29 18:07:32,561 - root - ERROR - Error evaluating game 0022300068: 'HOME_TEAM_ID'
+2025-06-29 18:07:32,562 - root - ERROR - Error evaluating game 0022300073: 'HOME_TEAM_ID'
+2025-06-29 18:07:32,562 - root - ERROR - Error evaluating game 0022300064: 'HOME_TEAM_ID'
+2025-06-29 18:07:32,563 - root - ERROR - Error evaluating game 0022300074: 'HOME_TEAM_ID'
+2025-06-29 18:07:32,563 - root - ERROR - Error evaluating game 0022300076: 'HOME_TEAM_ID'
+2025-06-29 18:07:32,563 - root - ERROR - Error evaluating game 0022300076: 'HOME_TEAM_ID'
+2025-06-29 18:07:32,564 - __main__ - ERROR - Evaluation failed: No games successfully evaluated

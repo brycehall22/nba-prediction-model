@@ -161,13 +161,13 @@ class EVPredictionSystem:
                 }
                 
                 # Get enhanced prediction with uncertainty
-                enhanced_prediction = self._get_enhanced_player_prediction(
+                prediction = self._get_player_prediction(
                     player_info, player_name, prop_data
                 )
                 
                 # Evaluate the prop bet
                 evaluation = self.props_predictor.evaluate_prop_bet(
-                    enhanced_prediction, prop_data
+                    prediction, prop_data
                 )
                 
                 if evaluation['valid'] and evaluation['best_bet'] != 'NONE' and evaluation['best_ev'] > 0:
@@ -213,7 +213,7 @@ class EVPredictionSystem:
         # No match found
         return None
     
-    def _get_enhanced_player_prediction(self, player_info, prop_player_name, prop_data):
+    def _get_player_prediction(self, player_info, prop_player_name, prop_data):
         """Get enhanced player prediction with standard deviation"""
         
         # Start with base prediction

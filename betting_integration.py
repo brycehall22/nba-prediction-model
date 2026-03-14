@@ -74,6 +74,7 @@ class BettingTeamMapper:
             return self.nba_to_betting[nba_name]
         
         # Log the miss
+        # amazonq-ignore-next-line
         logger.warning(f"No betting name match found for NBA name: {nba_name}")
         return None
     
@@ -91,6 +92,7 @@ class BettingTeamMapper:
             return self.betting_to_nba[betting_name]
         
         # Log the miss
+        # amazonq-ignore-next-line
         logger.warning(f"No NBA name match found for betting name: {betting_name}")
         return None
 
@@ -127,6 +129,7 @@ class BettingDataService:
             
             # Use subprocess to run the scraper script
             # Note: You may need to adjust this based on your environment
+            # amazonq-ignore-next-line
             subprocess.run(["python", "nba_odds_scraper.py"], check=True)
             
             # Check if file exists

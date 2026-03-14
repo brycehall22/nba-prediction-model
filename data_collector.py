@@ -1,1236 +1,1072 @@
-from nba_api.stats.endpoints import TeamGameLogs, PlayerGameLogs, CommonPlayerInfo, TeamPlayerDashboard
-from nba_api.stats.endpoints import LeagueGameLog, BoxScoreTraditionalV2
-from nba_api.stats.static import teams, players
 import pandas as pd
 import numpy as np
-from xgboost import XGBRegressor
-from sklearn.preprocessing import StandardScaler
-from sklearn.model_selection import train_test_split
-import joblib
+from nba_api.stats.endpoints import (
+    TeamGameLogs, PlayerGameLogs, CommonPlayerInfo, TeamPlayerDashboard,
+    LeagueGameLog, BoxScoreTraditionalV2, BoxScoreAdvancedV2,
+    TeamGameLog, PlayerGameLog, BoxScoreUsageV2, BoxScoreFourFactorsV2
+)
+from nba_api.stats.static import teams, players
 import logging
 from datetime import datetime, timedelta
 import time
-import os
-import re
 import requests
 from bs4 import BeautifulSoup
 import random
+from dataclasses import dataclass
+from typing import Dict, List, Optional, Tuple
+import sqlite3
+import json
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-logger = logging.getLogger(__name__)
+@dataclass
+class GameContext:
+    """Context information for a game"""
+    rest_days: int
+    is_back_to_back: bool
+    home_game: bool
+    opponent_strength: float
+    season_progress: float
+    injury_impact: float
 
-class DataCollector:
-    def __init__(self):
-        self.cache = {}
-        self.cache_timeout = 3600  # 1 hour cache timeout
-        self.retries = 5  # Increased retries for API stability
-        self.last_request_time = 0  # Track time of last request for better rate limiting
+class EnhancedDataCollector:
+    def _safe_get_data_frames(self, endpoint):
+        """Safely get data frames from NBA API endpoint"""
+        try:
+            # Try the standard method first
+            data_frames = endpoint.get_data_frames()
+            
+            if data_frames and len(data_frames) > 0:
+                return data_frames
+            
+            # If that fails, try getting raw data
+            try:
+                raw_data = endpoint.get_dict()
+                if 'resultSets' in raw_data and raw_data['resultSets']:
+                    result_set = raw_data['resultSets'][0]
+                    if 'rowSet' in result_set and 'headers' in result_set:
+                        df = pd.DataFrame(result_set['rowSet'], columns=result_set['headers'])
+                        return [df]
+                elif 'resultSet' in raw_data:
+                    result_set = raw_data['resultSet']
+                    if 'rowSet' in result_set and 'headers' in result_set:
+                        df = pd.DataFrame(result_set['rowSet'], columns=result_set['headers'])
+                        return [df]
+            except Exception as raw_error:
+                logging.warning(f"Raw data extraction failed: {raw_error}")
+            
+            return None
+            
+        except Exception as e:
+            logging.error(f"Error getting data frames: {e}")
+            return None
+    
+    """Enhanced data collector with advanced metrics and caching"""
+
+    def _json_serializer(slef, obj):
+        """Custom JSON serializer for NumPy/Pandas types"""
+        if isinstance(obj, (np.integer, np.int64, np.int32, np.int16, np.int8)):
+            return int(obj)
+        elif isinstance(obj, (np.floating, np.float64, np.float32, np.float16)):
+            return float(obj)
+        elif isinstance(obj, np.bool_):
+            return bool(obj)
+        elif isinstance(obj, np.ndarray):
+            return obj.tolist()
+        elif pd.isna(obj):
+            return None
+        elif hasattr(obj, 'item'):  # Handle scalar numpy types
+            try:
+                return obj.item()
+            except:
+                return str(obj)
+        elif isinstance(obj, pd.Timestamp):
+            return obj.isoformat()
+        else:
+            raise TypeError(f"Object of type {type(obj)} is not JSON serializable")
+    
+    def __init__(self, cache_db_path='nba_cache.db'):
+        self.cache_db_path = cache_db_path
+        self.setup_database()
         
-        # Initialize injury tracking
-        self.injury_data = {}
-        self.injury_last_updated = datetime.now() - timedelta(days=1)  # Force initial update
+        # Rate limiting
+        self.last_request_time = 0
+        self.min_request_interval = 2.5
         
-        # Configure user agent rotation to avoid API blocks
+        # User agent rotation
         self.user_agents = [
             'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
             'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.1.1 Safari/605.1.15',
             'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:89.0) Gecko/20100101 Firefox/89.0'
         ]
+        
+        # League averages for context
+        self.league_averages = {
+            'pace': 100.0,
+            'off_rating': 115.0,
+            'def_rating': 115.0,
+            'efg_pct': 0.54,
+            'ts_pct': 0.57,
+            'ast_ratio': 24.0,
+            'reb_rate': 50.0
+        }
+
+    def setup_database(self):
+        """Setup SQLite database for caching"""
+        conn = sqlite3.connect(self.cache_db_path)
+        cursor = conn.cursor()
+        
+        # Create tables for caching
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS team_games (
+                team_id INTEGER,
+                game_id TEXT,
+                game_date TEXT,
+                season TEXT,
+                data TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS player_games (
+                player_id INTEGER,
+                game_id TEXT,
+                game_date TEXT,
+                season TEXT,
+                data TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS advanced_stats (
+                entity_id INTEGER,
+                entity_type TEXT,
+                stat_type TEXT,
+                data TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        
+        conn.commit()
+        conn.close()
 
     def _rate_limit(self):
-        """
-        Improved rate limiting with jitter to avoid detection patterns
-        """
+        """Enhanced rate limiting with jitter"""
         current_time = time.time()
         elapsed = current_time - self.last_request_time
-        
-        # Base delay is 1.5s, add jitter of 0-0.5s to avoid regular patterns
-        min_delay = 1.5
-        if elapsed < min_delay:
+        if elapsed < self.min_request_interval:
             jitter = random.uniform(0, 0.5)
-            sleep_time = min_delay - elapsed + jitter
+            sleep_time = self.min_request_interval - elapsed + jitter
             time.sleep(sleep_time)
-            
+        
         self.last_request_time = time.time()
 
     def _get_headers(self):
-        """
-        Rotate user agents to avoid API blocks
-        """
+        """Get rotating headers"""
         return {
             'User-Agent': random.choice(self.user_agents),
             'Referer': 'https://stats.nba.com/',
             'Accept-Language': 'en-US,en;q=0.9'
         }
 
-    def get_team_players(self, team_id):
-        """Get active roster for a team"""
+    def get_team_stats(self, team_id: int, opponent_id: int = None, season: str = '2023-24') -> Dict:
+        """Get comprehensive team statistics with advanced metrics"""
         try:
-            return self.collector.get_team_players(team_id)
-        except Exception as e:
-            logger.error(f"Error getting team players: {str(e)}")
-            return []
+            # Check cache first
+            cached_data = self._get_cached_stats(team_id, 'team', 'advanced')
+            if cached_data:
+                return cached_data
             
-    def get_league_info(self):
-        """Get league-wide information and statistics"""
-        try:
-            # Get data for several teams to calculate league averages
-            all_teams = teams.get_teams()
-            sample_teams = all_teams[:10]  # Use 10 teams as a sample
-            
-            team_stats = []
-            for team in sample_teams:
-                stats = self.collector.get_team_stats(team['id'])
-                if stats:
-                    team_stats.append(stats)
-            
-            if not team_stats:
-                return {
-                    'avg_team_points': self.league_avg_points,
-                    'avg_pace': 100.0,
-                    'teams_count': len(all_teams)
-                }
-            
-            # Calculate league averages
-            avg_points = sum(s.get('PTS_AVG', 0) for s in team_stats) / len(team_stats)
-            avg_pace = sum(s.get('PACE', 100) for s in team_stats) / len(team_stats)
-            
-            # Update instance variables for fallback predictions
-            self.league_avg_points = avg_points
-            
-            return {
-                'avg_team_points': round(avg_points, 1),
-                'avg_pace': round(avg_pace, 1),
-                'teams_count': len(all_teams)
-            }
-        except Exception as e:
-            logger.error(f"Error getting league info: {str(e)}")
-            return None
-            
-    def get_injury_report(self):
-        """Get a league-wide injury report"""
-        try:
-            # Update injury data
-            self.collector.update_injury_data(force=True)
-            
-            if not self.collector.injury_data:
-                return {'error': 'No injury data available'}
-                
-            # Format injury data by team
-            all_teams = teams.get_teams()
-            team_injuries = {}
-            
-            # First get all team players
-            team_players = {}
-            for team in all_teams:
-                team_id = team['id']
-                players_list = self.collector.get_team_players(team_id)
-                if players_list:
-                    team_players[team_id] = {p['full_name']: p for p in players_list}
-            
-            # Then categorize injuries by team
-            for player_name, injury in self.collector.injury_data.items():
-                # Find player's team
-                player_team = None
-                team_id = None
-                
-                for tid, players in team_players.items():
-                    if player_name in players:
-                        player_team = next((t['full_name'] for t in all_teams if t['id'] == tid), None)
-                        team_id = tid
-                        break
-                
-                if player_team:
-                    if player_team not in team_injuries:
-                        team_injuries[player_team] = {
-                            'team_id': team_id,
-                            'injured_players': []
-                        }
-                        
-                    team_injuries[player_team]['injured_players'].append({
-                        'name': player_name,
-                        'status': injury['status'],
-                        'details': injury['details']
-                    })
-            
-            # Calculate impact for each team
-            for team_name, data in team_injuries.items():
-                # Get total minutes for injured players if available
-                team_id = data['team_id']
-                if team_id in team_players:
-                    players = team_players[team_id]
-                    
-                    total_injured_minutes = 0
-                    key_players_out = 0
-                    
-                    for injured in data['injured_players']:
-                        player_name = injured['name']
-                        if player_name in players:
-                            minutes = players[player_name].get('avg_minutes', 0)
-                            total_injured_minutes += minutes
-                            
-                            if minutes >= 25:  # Key player threshold
-                                key_players_out += 1
-                                
-                    # Calculate impact score
-                    data['total_injured_minutes'] = round(total_injured_minutes, 1)
-                    data['key_players_out'] = key_players_out
-                    data['impact_score'] = round(min(3.0, total_injured_minutes / 48), 2)  # Cap at 3.0
-            
-            return {
-                'updated': self.collector.injury_last_updated.strftime('%Y-%m-%d %H:%M:%S'),
-                'teams': team_injuries
-            }
-        except Exception as e:
-            logger.error(f"Error getting injury report: {str(e)}")
-            return {'error': str(e)}
-            
-    def evaluate_model_performance(self):
-        """Evaluate model performance on recent games"""
-        try:
-            if not self.models_loaded:
-                return {'error': 'Models not loaded'}
-                
-            # Get recent completed games
-            from nba_api.stats.endpoints import LeagueGameLog
-            recent_games = LeagueGameLog(
-                season='2023-24',
-                season_type_all_star='Regular Season',
-                date_from_nullable=None,  # Last 10 days by default
-                date_to_nullable=None,
-                headers=self.collector._get_headers()
-            ).get_data_frames()[0]
-            
-            if recent_games.empty:
-                return {'error': 'No recent games found'}
-                
-            # Limit to last 20 games
-            recent_games = recent_games.head(20)
-            
-            # Evaluate predictions
-            eval_results = []
-            
-            for _, game in recent_games.iterrows():
-                try:
-                    home_team_id = game['HOME_TEAM_ID']
-                    away_team_id = game['VISITOR_TEAM_ID']
-                    actual_home_score = game['PTS_home']
-                    actual_away_score = game['PTS_away']
-                    
-                    # Generate prediction
-                    prediction = self.predict_game(home_team_id, away_team_id)
-                    
-                    if 'error' in prediction and prediction['error']:
-                        continue
-                        
-                    pred_home_score = prediction['home_score']
-                    pred_away_score = prediction['away_score']
-                    
-                    # Calculate errors
-                    home_error = abs(pred_home_score - actual_home_score)
-                    away_error = abs(pred_away_score - actual_away_score)
-                    total_error = home_error + away_error
-                    
-                    # Calculate if winner was predicted correctly
-                    actual_winner = 'home' if actual_home_score > actual_away_score else 'away'
-                    pred_winner = 'home' if pred_home_score > pred_away_score else 'away'
-                    correct_winner = actual_winner == pred_winner
-                    
-                    eval_results.append({
-                        'game_id': game['GAME_ID'],
-                        'date': game['GAME_DATE'],
-                        'matchup': f"{game['VISITOR_TEAM_ABBREVIATION']} @ {game['HOME_TEAM_ABBREVIATION']}",
-                        'actual_score': f"{actual_away_score}-{actual_home_score}",
-                        'predicted_score': f"{pred_away_score}-{pred_home_score}",
-                        'home_error': home_error,
-                        'away_error': away_error,
-                        'total_error': total_error,
-                        'correct_winner': correct_winner
-                    })
-                except Exception as e:
-                    logger.error(f"Error evaluating game: {str(e)}")
-                    continue
-            
-            # Calculate overall metrics
-            if not eval_results:
-                return {'error': 'No evaluations completed'}
-                
-            avg_home_error = sum(r['home_error'] for r in eval_results) / len(eval_results)
-            avg_away_error = sum(r['away_error'] for r in eval_results) / len(eval_results)
-            avg_total_error = sum(r['total_error'] for r in eval_results) / len(eval_results)
-            winner_accuracy = sum(1 for r in eval_results if r['correct_winner']) / len(eval_results)
-            
-            return {
-                'games_evaluated': len(eval_results),
-                'avg_home_error': round(avg_home_error, 1),
-                'avg_away_error': round(avg_away_error, 1),
-                'avg_total_error': round(avg_total_error, 1),
-                'winner_accuracy': round(winner_accuracy * 100, 1),
-                'results': eval_results
-            }
-        except Exception as e:
-            logger.error(f"Error evaluating model: {str(e)}")
-            return {'error': str(e)}
-    def get_team_recent_games(self, team_id, n_games=10, season=None):
-        """
-        Get recent games for a team with optional season filter and improved error handling
-        """
-        cache_key = f"team_{team_id}_{n_games}_{season}"
-        if cache_key in self.cache:
-            timestamp, data = self.cache[cache_key]
-            if (datetime.now() - timestamp).total_seconds() < self.cache_timeout:
-                return data
-
-        try:
             self._rate_limit()
             
-            # Add retry logic with exponential backoff
-            for attempt in range(self.retries):
-                try:
-                    if season:
-                        # Use SeasonYear parameter if season is provided
-                        games = TeamGameLogs(team_id_nullable=team_id, 
-                                           season_nullable=season,
-                                           headers=self._get_headers()).get_data_frames()[0]
-                    else:
-                        games = TeamGameLogs(team_id_nullable=team_id,
-                                          headers=self._get_headers()).get_data_frames()[0]
-                    
-                    if games.empty:
-                        logger.warning(f"No games found for team ID {team_id}")
-                        return None
-                    
-                    break  # Successful API call, exit retry loop
-                except Exception as e:
-                    if attempt == self.retries - 1:
-                        logger.error(f"Failed to get team games after {self.retries} attempts: {str(e)}")
-                        
-                        # Fallback to LeagueGameLog if TeamGameLogs fails
-                        try:
-                            # Use LeagueGameLog as alternative data source
-                            if season:
-                                league_games = LeagueGameLog(season=season, 
-                                                          headers=self._get_headers()).get_data_frames()[0]
-                            else:
-                                league_games = LeagueGameLog(headers=self._get_headers()).get_data_frames()[0]
-                                
-                            # Filter for this team
-                            team_info = next((t for t in teams.get_teams() if t['id'] == team_id), None)
-                            if team_info:
-                                team_abbr = team_info['abbreviation']
-                                home_games = league_games[league_games['HOME_TEAM_ABBREVIATION'] == team_abbr]
-                                away_games = league_games[league_games['VISITOR_TEAM_ABBREVIATION'] == team_abbr]
-                                
-                                if not home_games.empty or not away_games.empty:
-                                    # Process games to match expected format
-                                    # This is simplified and would need to be expanded
-                                    games = pd.concat([home_games, away_games]).head(n_games)
-                                    break
-                        except:
-                            return None
-                            
-                    # Exponential backoff: wait longer after each retry
-                    time.sleep(2 ** attempt)  
-            
-            # Process the data
-            recent_games = games.head(n_games)
-            
-            # Ensure numeric columns are properly converted
-            numeric_cols = ['PTS', 'FG_PCT', 'FG3_PCT', 'FT_PCT', 'REB', 'AST', 'STL', 'BLK', 'TOV', 'PLUS_MINUS']
-            for col in numeric_cols:
-                if col in recent_games.columns:
-                    recent_games[col] = pd.to_numeric(recent_games[col], errors='coerce').fillna(0)
-            
-            # Add game pace if not present (estimated from possessions)
-            if 'PACE' not in recent_games.columns:
-                # Estimate pace from available stats (FGA + TOV + 0.44*FTA - OREB)
-                if all(col in recent_games.columns for col in ['FGA', 'TOV', 'FTA', 'OREB']):
-                    recent_games['PACE'] = recent_games['FGA'] + recent_games['TOV'] + 0.44*recent_games['FTA'] - recent_games['OREB']
-                else:
-                    # Use league average if stats not available
-                    recent_games['PACE'] = 100
-            
-            # Calculate defensive rating if not present
-            if 'DEF_RATING' not in recent_games.columns:
-                # Simple estimate based on opponent points and estimated possessions
-                if 'OPP_PTS' in recent_games.columns and 'PACE' in recent_games.columns:
-                    recent_games['DEF_RATING'] = recent_games['OPP_PTS'] * 100 / recent_games['PACE']
-                else:
-                    # Use league average if stats not available
-                    recent_games['DEF_RATING'] = 110
-            
-            self.cache[cache_key] = (datetime.now(), recent_games)
-            return recent_games
-        except Exception as e:
-            logger.error(f"Error getting team games: {str(e)}")
-            return None
-
-    def get_player_recent_games(self, player_id, n_games=10):
-        """
-        Get recent games for a player with improved error handling and data validation
-        """
-        cache_key = f"player_{player_id}_{n_games}"
-        if cache_key in self.cache:
-            timestamp, data = self.cache[cache_key]
-            if (datetime.now() - timestamp).total_seconds() < self.cache_timeout:
-                return data
-
-        try:
-            self._rate_limit()
-            
-            # Progressive retry strategy with exponential backoff
-            for attempt in range(self.retries):
-                try:
-                    games = PlayerGameLogs(player_id_nullable=player_id, 
-                                        headers=self._get_headers()).get_data_frames()[0]
-                    break
-                except Exception as e:
-                    # Track specific error types for better handling
-                    error_msg = str(e).lower()
-                    
-                    # If it's a 429 (too many requests) error, wait longer
-                    if "429" in error_msg or "too many requests" in error_msg:
-                        wait_time = 5 * (2 ** attempt)
-                        logger.warning(f"Rate limited. Waiting {wait_time}s before retry.")
-                        time.sleep(wait_time)
-                    elif attempt == self.retries - 1:
-                        logger.error(f"Failed to get player games: {str(e)}")
-                        
-                        # For inactive players, create a minimal data structure
-                        try:
-                            player_info = CommonPlayerInfo(player_id=player_id, 
-                                                         headers=self._get_headers()).get_data_frames()[0]
-                            if not player_info.empty and 'ROSTERSTATUS' in player_info.columns:
-                                status = player_info['ROSTERSTATUS'].iloc[0]
-                                if status == 'Inactive':
-                                    logger.info(f"Player ID {player_id} is inactive, returning minimal data")
-                                    # Create a minimal DataFrame for inactive players
-                                    return pd.DataFrame({
-                                        'PLAYER_ID': [player_id],
-                                        'MIN': [0],
-                                        'PTS': [0],
-                                        'INACTIVE': [True]
-                                    })
-                        except:
-                            pass
-                            
-                        return None
-                    else:
-                        # For other errors, use standard backoff
-                        time.sleep(2 ** attempt)
-                    
-            if games.empty:
-                logger.warning(f"No games found for player ID {player_id}")
-                return None
-                
-            # More lenient with data requirements - include players with at least 1 game
-            if len(games) < 1:
-                logger.warning(f"Not enough games for player ID {player_id}")
-                return None
-                
-            # Take at most n_games, but be happy with whatever we have
-            recent_games = games.head(min(n_games, len(games)))
-            
-            # Properly handle minute conversions
-            if 'MIN' in recent_games.columns:
-                recent_games['MIN'] = recent_games['MIN'].apply(self._convert_minutes)
-                
-            # Additional data cleaning for player games
-            numeric_cols = ['PTS', 'FG_PCT', 'FG3_PCT', 'FT_PCT', 'REB', 'AST', 'STL', 'BLK', 'TOV']
-            for col in numeric_cols:
-                if col in recent_games.columns:
-                    recent_games[col] = pd.to_numeric(recent_games[col], errors='coerce').fillna(0)
-            
-            # Add "did not play" flag
-            recent_games['DNP'] = (recent_games['MIN'] == 0)
-            
-            self.cache[cache_key] = (datetime.now(), recent_games)
-            return recent_games
-        except Exception as e:
-            logger.error(f"Error getting player games: {str(e)}")
-            return None
-            
-    def _convert_minutes(self, min_str):
-        """
-        Better handling of minutes conversion with multiple formats
-        """
-        if pd.isna(min_str) or min_str == '':
-            return 0
-        
-        try:
-            # Handle numeric values
-            if isinstance(min_str, (int, float)):
-                return float(min_str)
-                
-            # Handle string representations of numbers
-            if isinstance(min_str, str) and min_str.replace('.', '', 1).isdigit():
-                return float(min_str)
-                
-            # Handle minute:second format
-            if isinstance(min_str, str) and ':' in min_str:
-                parts = min_str.split(':')
-                if len(parts) == 2:
-                    minutes = float(parts[0])
-                    seconds = float(parts[1]) / 60
-                    return minutes + seconds
-                    
-            # Last resort - try direct float conversion
-            return float(min_str)
-        except:
-            # If all else fails, return 0
-            return 0
-            
-    def get_player_stats(self, player_id):
-        """
-        Get comprehensive player statistics with improved type checking and conversion
-        """
-        recent_games = self.get_player_recent_games(player_id)
-        if recent_games is None or len(recent_games) == 0:
-            return None
-
-        # Check for inactive flag
-        if 'INACTIVE' in recent_games.columns and recent_games['INACTIVE'].iloc[0]:
-            return {
-                'PTS_AVG': 0.0,
-                'MIN': 0.0,
-                'INACTIVE': True
-            }
-
-        # Filter out DNP games for more accurate stats
-        active_games = recent_games[~recent_games['DNP']] if 'DNP' in recent_games.columns else recent_games
-        
-        # If no active games, return minimal stats
-        if len(active_games) == 0:
-            return {
-                'PTS_AVG': 0.0,
-                'MIN': 0.0,
-                'GAMES_PLAYED': 0
-            }
-
-        # Ensure proper numeric conversion for all columns
-        numeric_cols = ['PTS', 'FG_PCT', 'FG3_PCT', 'FT_PCT', 'REB', 'AST', 'MIN', 'STL', 'BLK', 'TOV']
-        for col in numeric_cols:
-            if col in active_games.columns:
-                active_games[col] = pd.to_numeric(active_games[col], errors='coerce').fillna(0)
-
-        # Weighting recent games more heavily (exponential decay weights)
-        num_games = len(active_games)
-        if num_games > 1:
-            weights = np.exp(np.linspace(0, -1, num_games))
-            weights = weights / weights.sum()
-            
-            weighted_avg = lambda x: np.average(x, weights=weights[:len(x)])
-        else:
-            weighted_avg = lambda x: x.mean()
-
-        # Comprehensive stats calculation with recency bias
-        stats = {
-            'PTS_AVG': float(weighted_avg(active_games['PTS'])),
-            'FG_PCT': float(weighted_avg(active_games['FG_PCT'])) if 'FG_PCT' in active_games else 0.0,
-            'FG3_PCT': float(weighted_avg(active_games['FG3_PCT'])) if 'FG3_PCT' in active_games else 0.0,
-            'FT_PCT': float(weighted_avg(active_games['FT_PCT'])) if 'FT_PCT' in active_games else 0.0,
-            'REB': float(weighted_avg(active_games['REB'])) if 'REB' in active_games else 0.0,
-            'AST': float(weighted_avg(active_games['AST'])) if 'AST' in active_games else 0.0,
-            'MIN': float(weighted_avg(active_games['MIN'])),
-            'STL': float(weighted_avg(active_games['STL'])) if 'STL' in active_games else 0.0,
-            'BLK': float(weighted_avg(active_games['BLK'])) if 'BLK' in active_games else 0.0,
-            'TOV': float(weighted_avg(active_games['TOV'])) if 'TOV' in active_games else 0.0,
-            
-            # Regular averages and std for reference
-            'PTS_MEAN': float(active_games['PTS'].mean()),
-            'PTS_STD': float(active_games['PTS'].std()) if len(active_games) > 1 else 5.0,
-            
-            # Number of games played (for confidence calculation)
-            'GAMES_PLAYED': int(len(active_games)),
-            
-            # Calculate consistency (lower std/mean ratio means more consistent)
-            'CONSISTENCY': float(1.0 - min(active_games['PTS'].std() / max(active_games['PTS'].mean(), 1), 0.5)) if len(active_games) > 1 else 0.5,
-            
-            # Calculate usage percentage based on minutes
-            'USAGE': float(active_games['MIN'].mean() / 48.0),
-            
-            # Scoring trend (difference between consecutive games)
-            'TREND': float(active_games['PTS'].diff().dropna().mean()) if len(active_games) > 1 else 0.0,
-            
-            # Hot/cold streak indicator
-            'STREAK': float((active_games['PTS'].iloc[0] - active_games['PTS'].mean()) / max(1, active_games['PTS'].std())) if len(active_games) > 1 else 0.0,
-            
-            # Add home/road splits if available
-            'HOME_ROAD_DIFF': 0.0
-        }
-        
-        # Calculate home/road performance differential
-        if 'MATCHUP' in active_games.columns:
-            home_games = active_games[active_games['MATCHUP'].str.contains('vs.', na=False)]
-            away_games = active_games[active_games['MATCHUP'].str.contains('@', na=False)]
-            
-            if not home_games.empty and not away_games.empty:
-                home_ppg = home_games['PTS'].mean()
-                away_ppg = away_games['PTS'].mean()
-                stats['HOME_PPG'] = float(home_ppg)
-                stats['AWAY_PPG'] = float(away_ppg)
-                stats['HOME_ROAD_DIFF'] = float(home_ppg - away_ppg)
-        
-        # Check if player might be injured but playing limited minutes
-        recent_3_games = active_games.head(3)
-        if not recent_3_games.empty:
-            avg_recent_min = recent_3_games['MIN'].mean()
-            avg_all_min = active_games['MIN'].mean()
-            
-            # If recent minutes are significantly lower, might indicate injury or reduced role
-            if avg_all_min > 15 and avg_recent_min < 0.7 * avg_all_min:
-                stats['REDUCED_MINUTES'] = True
-                stats['MINUTES_REDUCTION'] = float(avg_all_min - avg_recent_min)
-            else:
-                stats['REDUCED_MINUTES'] = False
-                stats['MINUTES_REDUCTION'] = 0.0
-                
-        # Add injury status if available
-        if self.injury_data:
-            player_name = self._get_player_name(player_id)
-            if player_name in self.injury_data:
-                stats['INJURY_STATUS'] = self.injury_data[player_name]['status']
-                stats['INJURY_DETAILS'] = self.injury_data[player_name]['details']
-        
-        return stats
-
-    def _get_player_name(self, player_id):
-        """Get player name from ID for injury matching"""
-        try:
-            player_info = next((p for p in players.get_players() if p['id'] == player_id), None)
-            if player_info:
-                return player_info['full_name']
-            return None
-        except:
-            return None
-                
-    def calculate_rest_days(self, games):
-        """
-        Calculate rest days between games with improved error handling
-        """
-        try:
-            if games is None or len(games) < 2:
-                return 3  # Default rest if no prior game
-                
+            # Get basic game logs with error handling
             try:
-                # Try standard datetime conversion
-                game_dates = pd.to_datetime(games['GAME_DATE'])
-                rest = (game_dates.iloc[0] - game_dates.iloc[1]).days
-                return min(rest, 7)  # Cap at 7 days
-            except Exception as e1:
-                # If standard conversion fails, try multiple formats
-                try:
-                    # Try parsing different date formats
-                    formats = ['%Y-%m-%d', '%m/%d/%Y', '%b %d, %Y', '%Y%m%d']
-                    
-                    for fmt in formats:
-                        try:
-                            if isinstance(games['GAME_DATE'].iloc[0], str):
-                                dates = [datetime.strptime(date, fmt) for date in games['GAME_DATE']]
-                                rest = (dates[0] - dates[1]).days
-                                return min(rest, 7)
-                        except:
-                            continue
-                except Exception as e2:
-                    logger.warning(f"Date conversion failed: {str(e2)}")
-                    
-                # Last resort - check if datetime objects with direct subtraction
-                try:
-                    if isinstance(games['GAME_DATE'].iloc[0], datetime):
-                        rest = (games['GAME_DATE'].iloc[0] - games['GAME_DATE'].iloc[1]).days
-                        return min(rest, 7)
-                except:
-                    pass
-                    
-                return 3  # Default if all parsing fails
-        except Exception as e:
-            logger.error(f"Error calculating rest days: {str(e)}")
-            return 3  # Default rest days
-
-    def get_team_stats(self, team_id, opponent_id=None):
-        """
-        Get comprehensive team stats with improved metrics and matchup analysis
-        """
-        try:
-            recent_games = self.get_team_recent_games(team_id)
-            if recent_games is None or len(recent_games) == 0:
-                return None
-
-            # Convert columns to float to avoid type errors
-            numeric_cols = ['PTS', 'FG_PCT', 'FG3_PCT', 'FT_PCT', 'REB', 'AST', 'STL', 'BLK', 'TOV', 'PLUS_MINUS',
-                            'PACE', 'DEF_RATING']
-            for col in numeric_cols:
-                if col in recent_games.columns:
-                    recent_games[col] = pd.to_numeric(recent_games[col], errors='coerce').fillna(0)
-
-            # Apply recency weighting for better predictions
-            num_games = len(recent_games)
-            weights = np.exp(np.linspace(0, -1, num_games))
-            weights = weights / weights.sum()
-            
-            weighted_avg = lambda x: np.average(x, weights=weights[:len(x)])
-
-            # Calculate comprehensive team statistics with recency bias
-            stats = {
-                'PTS_AVG': weighted_avg(recent_games['PTS']),
-                'FG_PCT': weighted_avg(recent_games['FG_PCT']),
-                'FG3_PCT': weighted_avg(recent_games['FG3_PCT']),
-                'FT_PCT': weighted_avg(recent_games['FT_PCT']),
-                'REB': weighted_avg(recent_games['REB']),
-                'AST': weighted_avg(recent_games['AST']),
-                'STL': weighted_avg(recent_games['STL']),
-                'BLK': weighted_avg(recent_games['BLK']),
-                'TOV': weighted_avg(recent_games['TOV']),
-                'PLUS_MINUS': weighted_avg(recent_games['PLUS_MINUS']),
-                'WIN_PCT': (recent_games['WL'] == 'W').mean(),
-                'REST_DAYS': self.calculate_rest_days(recent_games),
-                'TREND_PPG': recent_games['PTS'].diff().fillna(0).mean(),
-                'PTS_STD': recent_games['PTS'].std(),
-                'PACE': weighted_avg(recent_games['PACE']) if 'PACE' in recent_games else 100.0,
-                'DEF_RATING': weighted_avg(recent_games['DEF_RATING']) if 'DEF_RATING' in recent_games else 110.0,
-                'OPP_PTS_ALLOWED': 0,
-                'OPP_FG_PCT_ALLOWED': 0
-            }
-            
-            # Add more advanced stats if available
-            if 'AST_PCT' in recent_games.columns:
-                stats['AST_PCT'] = weighted_avg(recent_games['AST_PCT'])
-            
-            if 'REB_PCT' in recent_games.columns:
-                stats['REB_PCT'] = weighted_avg(recent_games['REB_PCT'])
-                
-            # Calculate home/away performance differential
-            if 'MATCHUP' in recent_games.columns:
-                home_games = recent_games[recent_games['MATCHUP'].str.contains('vs.', na=False)]
-                away_games = recent_games[recent_games['MATCHUP'].str.contains('@', na=False)]
-                
-                if not home_games.empty and not away_games.empty:
-                    stats['HOME_PPG'] = home_games['PTS'].mean()
-                    stats['AWAY_PPG'] = away_games['PTS'].mean()
-                    stats['HOME_ADV'] = stats['HOME_PPG'] - stats['AWAY_PPG']
-            
-            # Calculate recent form (last 3 games vs all 10 games)
-            if len(recent_games) >= 3:
-                recent_3 = recent_games.head(3)
-                stats['RECENT_3_PPG'] = recent_3['PTS'].mean()
-                stats['RECENT_FORM'] = stats['RECENT_3_PPG'] / stats['PTS_AVG'] if stats['PTS_AVG'] > 0 else 1.0
-                
-                # Check if significant recent injuries might be affecting performance
-                if stats['RECENT_3_PPG'] < 0.85 * stats['PTS_AVG'] and stats['PTS_AVG'] > 100:
-                    stats['RECENT_UNDERPERFORMANCE'] = True
-                else:
-                    stats['RECENT_UNDERPERFORMANCE'] = False
-
-            # Get opponent defensive metrics if opponent_id provided
-            if opponent_id:
-                opp_games = self.get_team_recent_games(opponent_id)
-                if opp_games is not None and len(opp_games) > 0:
-                    # Convert columns to float
-                    for col in numeric_cols:
-                        if col in opp_games.columns:
-                            opp_games[col] = pd.to_numeric(opp_games[col], errors='coerce').fillna(0)
-                    
-                    # Opponent defensive metrics
-                    stats['OPP_PTS_ALLOWED'] = opp_games['PTS'].mean()
-                    stats['OPP_FG_PCT_ALLOWED'] = opp_games['FG_PCT'].mean()
-                    stats['OPP_DEF_RATING'] = opp_games['DEF_RATING'].mean() if 'DEF_RATING' in opp_games else 110.0
-                    
-                    # Calculate expected scoring against this opponent
-                    off_rating = stats['PTS_AVG'] * 100 / stats['PACE'] if stats['PACE'] > 0 else stats['PTS_AVG']
-                    expected_pts = (off_rating * stats['OPP_DEF_RATING'] / 110.0) * stats['PACE'] / 100
-                    stats['EXPECTED_PTS'] = expected_pts
-                    
-                    # Calculate matchup-specific adjustments
-                    try:
-                        # Find previous matchups between these teams
-                        matchups = recent_games[recent_games['MATCHUP'].str.contains(
-                            self._get_team_abbr(opponent_id), na=False)]
-                        
-                        if not matchups.empty:
-                            stats['H2H_PTS_AVG'] = matchups['PTS'].mean()
-                            stats['H2H_DIFF'] = stats['H2H_PTS_AVG'] - stats['PTS_AVG']
-                    except:
-                        pass
-                else:
-                    # Fallback to league averages if no opponent data
-                    stats['OPP_PTS_ALLOWED'] = 110
-                    stats['OPP_FG_PCT_ALLOWED'] = 0.46
-                    stats['OPP_DEF_RATING'] = 110.0
-
-            # Add team injury impact
-            team_injuries = self.get_team_injuries(team_id)
-            if team_injuries:
-                stats['KEY_PLAYERS_INJURED'] = team_injuries['key_players_out']
-                stats['INJURY_IMPACT'] = team_injuries['impact_score']
-            else:
-                stats['KEY_PLAYERS_INJURED'] = 0
-                stats['INJURY_IMPACT'] = 0
-                
-            return stats
-        except Exception as e:
-            logger.error(f"Error getting team stats: {str(e)}")
-            return None
-            
-    def _get_team_abbr(self, team_id):
-        """Helper to get team abbreviation from team ID"""
-        team_info = next((t for t in teams.get_teams() if t['id'] == team_id), None)
-        return team_info['abbreviation'] if team_info else None
-
-    def update_injury_data(self, force=False):
-        """
-        Update injury data using player game logs and box scores
-        """
-        # Only update once per day unless forced
-        if not force and (datetime.now() - self.injury_last_updated).total_seconds() < 86400:
-            return
-            
-        try:
-            # Initialize injury data dictionary
-            injury_data = {}
-            
-            # Approach 1: Web scraping from reliable sources (already implemented)
-            try:
-                url = "https://www.cbssports.com/nba/injuries/"
-                
-                headers = {
-                    'User-Agent': random.choice(self.user_agents),
-                    'Accept': 'text/html,application/xhtml+xml,application/xml',
-                    'Accept-Language': 'en-US,en;q=0.9'
-                }
-                
-                response = requests.get(url, headers=headers, timeout=10)
-                
-                if response.status_code == 200:
-                    soup = BeautifulSoup(response.text, 'html.parser')
-                    
-                    # Parse injury tables
-                    injury_tables = soup.find_all('table', class_='TableBase-table')
-                    
-                    for table in injury_tables:
-                        rows = table.find_all('tr', class_='TableBase-bodyTr')
-                        
-                        for row in rows:
-                            cells = row.find_all('td')
-                            if len(cells) >= 4:  # Player, Position, Injury, Status
-                                try:
-                                    player_cell = cells[0]
-                                    player_name = player_cell.find('span', class_='CellPlayerName--long').text.strip()
-                                    injury_details = cells[2].text.strip()
-                                    status = cells[3].text.strip()
-                                    
-                                    # Store in dictionary
-                                    injury_data[player_name] = {
-                                        'details': injury_details,
-                                        'status': status,
-                                        'is_out': 'out' in status.lower() or 'doubtful' in status.lower(),
-                                        'source': 'web'
-                                    }
-                                except Exception as e:
-                                    logger.warning(f"Error parsing injury row: {str(e)}")
-                                    continue
-                    
-                    logger.info(f"Fetched {len(injury_data)} injuries from web scraping")
-                else:
-                    logger.warning(f"Failed to get injury data from web: {response.status_code}")
-            except Exception as e:
-                logger.error(f"Error scraping injury data: {str(e)}")
-            
-            # Approach 2: Use PlayerGameLogs to detect players who haven't been playing
-            if len(injury_data) < 10:  # If web scraping found few injuries, supplement with API data
-                logger.info("Supplementing injury data with player game logs analysis")
-                
-                from nba_api.stats.static import teams as nba_teams
-                from nba_api.stats.endpoints import PlayerGameLogs
-                
-                # Get all active teams
-                all_teams = nba_teams.get_teams()
-                
-                # Sample teams to avoid too many API calls
-                sample_teams = random.sample(all_teams, min(10, len(all_teams)))
-                
-                for team in sample_teams:
-                    team_id = team['id']
-                    self._rate_limit()
-                    
-                    # Get team roster
-                    try:
-                        roster = self.get_team_players(team_id)
-                        
-                        # Check each player's recent games
-                        for player in roster:
-                            player_id = player['id']
-                            player_name = player['full_name']
-                            
-                            # Skip if already in injury data
-                            if player_name in injury_data:
-                                continue
-                                
-                            self._rate_limit()
-                            
-                            try:
-                                # Get recent games
-                                player_logs = PlayerGameLogs(
-                                    player_id_nullable=player_id,
-                                    headers=self._get_headers()
-                                ).get_data_frames()[0]
-                                
-                                # If no games found or empty dataframe, might be inactive
-                                if player_logs.empty:
-                                    # Add as potentially injured/inactive
-                                    injury_data[player_name] = {
-                                        'details': 'No recent games - inactive or injured',
-                                        'status': 'Out (inferred)',
-                                        'is_out': True,
-                                        'source': 'game_logs'
-                                    }
-                                    continue
-                                
-                                # Check last 5 games
-                                recent_games = player_logs.head(5)
-                                
-                                # Convert minutes to numeric
-                                recent_games['MIN'] = recent_games['MIN'].apply(self._convert_minutes)
-                                
-                                # Check for DNP pattern
-                                consecutive_dnp = 0
-                                for _, game in recent_games.iterrows():
-                                    if game['MIN'] == 0:
-                                        consecutive_dnp += 1
-                                    else:
-                                        break
-                                
-                                # Player hasn't played in at least 3 consecutive games
-                                if consecutive_dnp >= 3:
-                                    injury_data[player_name] = {
-                                        'details': f'Has not played in {consecutive_dnp} consecutive games',
-                                        'status': 'Out (inferred)',
-                                        'is_out': True,
-                                        'source': 'game_logs'
-                                    }
-                                
-                                # Check for limited minutes pattern (possible return from injury)
-                                elif len(recent_games) >= 3:
-                                    avg_mins = recent_games['MIN'].mean()
-                                    # Player with significant role but playing limited minutes
-                                    if player.get('avg_minutes', 0) > 20 and avg_mins < 10:
-                                        injury_data[player_name] = {
-                                            'details': 'Limited minutes - possible injury or return from injury',
-                                            'status': 'Day-to-Day (inferred)',
-                                            'is_out': False,
-                                            'source': 'game_logs'
-                                        }
-                            except Exception as e:
-                                # Skip players with errors
-                                continue
-                    except Exception as e:
-                        logger.warning(f"Error processing team {team['full_name']}: {str(e)}")
-                        continue
-            
-            # Approach 3: Look at recent BoxScores for DNP comments
-            try:
-                from nba_api.stats.endpoints import LeagueGameLog, BoxScoreTraditionalV2
-                
-                # Get recent games
-                self._rate_limit()
-                recent_league_games = LeagueGameLog(
-                    season='2023-24',  # Using current season
-                    date_from_nullable=None,  # Last few days by default
-                    date_to_nullable=None,
+                team_games_endpoint = TeamGameLogs(
+                    team_id_nullable=team_id,
+                    season_nullable=season,
                     headers=self._get_headers()
-                ).get_data_frames()[0]
+                )
                 
-                # Limit to most recent 5 games to avoid too many API calls
-                recent_game_ids = recent_league_games['GAME_ID'].head(5).tolist()
+                # Get the data frames - handle different response structures
+                data_frames = self._safe_get_data_frames(team_games_endpoint)
                 
-                for game_id in recent_game_ids:
-                    self._rate_limit()
+                if not data_frames or len(data_frames) == 0:
+                    logging.warning(f"No data frames returned for team {team_id}")
+                    return {}
                     
-                    try:
-                        # Get box score
-                        box_score = BoxScoreTraditionalV2(
-                            game_id=game_id,
-                            headers=self._get_headers()
-                        ).get_data_frames()[0]
-                        
-                        # Check for injury comments
-                        for _, player_row in box_score.iterrows():
-                            player_name = player_row['PLAYER_NAME']
-                            
-                            # Skip if already in injury data
-                            if player_name in injury_data:
-                                continue
-                            
-                            # Check if COMMENT column exists
-                            if 'COMMENT' in box_score.columns:
-                                comment = str(player_row['COMMENT']).lower() if not pd.isna(player_row['COMMENT']) else ''
-                                
-                                # Look for injury-related terms
-                                if any(term in comment for term in ['injury', 'injured', 'illness', 'sore', 'sprain']):
-                                    injury_data[player_name] = {
-                                        'details': player_row['COMMENT'],
-                                        'status': 'Out' if player_row['MIN'] == 0 else 'Day-to-Day',
-                                        'is_out': player_row['MIN'] == 0,
-                                        'source': 'box_score'
-                                    }
-                    except Exception as e:
-                        logger.warning(f"Error processing box score for game {game_id}: {str(e)}")
-                        continue
-            except Exception as e:
-                logger.error(f"Error processing box scores for injury data: {str(e)}")
-            
-            # Update the injury data and timestamp
-            self.injury_data = injury_data
-            self.injury_last_updated = datetime.now()
-            logger.info(f"Updated injury data: {len(injury_data)} players")
+                team_games = data_frames[0]
                 
-        except Exception as e:
-            logger.error(f"Error updating injury data: {str(e)}")
-
+            except Exception as api_error:
+                logging.error(f"NBA API error for team {team_id}: {api_error}")
+                # Try alternative approach or return empty dict
+                return {}
             
-    def get_team_injuries(self, team_id):
-        """
-        Get injury information for a team's players
-        """
-        if not self.injury_data:
-            self.update_injury_data()
+            if team_games.empty:
+                return {}
             
-        if not self.injury_data:  # If still empty after update attempt
-            return None
-            
-        try:
-            # Get team players
-            players_list = self.get_team_players(team_id)
-            if not players_list:
-                return None
-                
-            # Initialize counters
-            key_players_out = 0
-            rotation_players_out = 0
-            bench_players_out = 0
-            impact_score = 0
-            injured_players = []
-            
-            # Check each player's injury status
-            for player in players_list:
-                player_name = player['full_name']
-                avg_minutes = player.get('avg_minutes', 0)
-                
-                if player_name in self.injury_data and self.injury_data[player_name]['is_out']:
-                    injured_players.append({
-                        'name': player_name,
-                        'status': self.injury_data[player_name]['status'],
-                        'minutes': avg_minutes
-                    })
-                    
-                    # Categorize by role based on minutes
-                    if avg_minutes >= 30:  # Key player
-                        key_players_out += 1
-                        impact_score += 1.0  # Full impact
-                    elif avg_minutes >= 20:  # Rotation player
-                        rotation_players_out += 1
-                        impact_score += 0.6  # Moderate impact
-                    elif avg_minutes >= 10:  # Bench player
-                        bench_players_out += 1
-                        impact_score += 0.2  # Low impact
-            
-            return {
-                'team_id': team_id,
-                'injured_players': injured_players,
-                'key_players_out': key_players_out,
-                'rotation_players_out': rotation_players_out,
-                'bench_players_out': bench_players_out,
-                'total_players_out': key_players_out + rotation_players_out + bench_players_out,
-                'impact_score': impact_score  # Higher means more impacted by injuries
-            }
-        except Exception as e:
-            logger.error(f"Error getting team injuries: {str(e)}")
-            return None
-
-    def get_team_players(self, team_id):
-        """
-        Get active roster for a team with better error handling and progressive fallbacks
-        """
-        cache_key = f"team_players_{team_id}"
-        if cache_key in self.cache:
-            timestamp, data = self.cache[cache_key]
-            if (datetime.now() - timestamp).total_seconds() < self.cache_timeout:
-                return data
-                
-        try:
-            self._rate_limit()
-            
-            # Progressive fetching strategy with multiple approaches
-            dashboard = None
-            
-            # Approach 1: Try TeamPlayerDashboard
-            for attempt in range(self.retries):
-                try:
-                    dashboard = TeamPlayerDashboard(team_id=team_id, 
-                                                 headers=self._get_headers()).get_data_frames()[1]
-                    break
-                except Exception as e:
-                    if attempt == self.retries - 1:
-                        logger.warning(f"Failed to get TeamPlayerDashboard: {str(e)}")
-                    else:
-                        time.sleep(2 ** attempt)  # Exponential backoff
-            
-            # Approach 2: Use alternative data source if dashboard failed
-            if dashboard is None or dashboard.empty:
-                try:
-                    # Use CommonTeamRoster as alternative
-                    from nba_api.stats.endpoints import CommonTeamRoster
-                    roster = CommonTeamRoster(team_id=team_id, 
-                                           headers=self._get_headers()).get_data_frames()[0]
-                    if not roster.empty:
-                        dashboard = roster
-                        logger.info(f"Used CommonTeamRoster fallback for team {team_id}")
-                except Exception as e2:
-                    logger.warning(f"Failed to get CommonTeamRoster: {str(e2)}")
-            
-            # Approach 3: Last resort - build from recent game logs
-            if dashboard is None or dashboard.empty:
-                try:
-                    # Get recent team games to find players
-                    games = self.get_team_recent_games(team_id, 5)
-                    if games is not None and not games.empty:
-                        # Get box scores for these games to find players
-                        from nba_api.stats.endpoints import BoxScoreTraditionalV2
-                        
-                        players_seen = {}
-                        for _, game in games.iterrows():
-                            try:
-                                game_id = game['GAME_ID']
-                                box = BoxScoreTraditionalV2(game_id=game_id, 
-                                                         headers=self._get_headers()).get_data_frames()[0]
-                                
-                                # Filter for players from this team
-                                team_box = box[box['TEAM_ID'] == team_id]
-                                
-                                for _, player in team_box.iterrows():
-                                    player_id = player['PLAYER_ID']
-                                    player_name = player['PLAYER_NAME']
-                                    minutes = self._convert_minutes(player['MIN'])
-                                    
-                                    if player_id not in players_seen:
-                                        players_seen[player_id] = {
-                                            'id': player_id,
-                                            'full_name': player_name,
-                                            'games': 1,
-                                            'minutes': [minutes]
-                                        }
-                                    else:
-                                        players_seen[player_id]['games'] += 1
-                                        players_seen[player_id]['minutes'].append(minutes)
-                            except:
-                                continue
-                        
-                        # Create custom player list from box scores
-                        if players_seen:
-                            players_list = []
-                            for player_id, data in players_seen.items():
-                                avg_minutes = sum(data['minutes']) / len(data['minutes']) if data['minutes'] else 0
-                                games_played = data['games']
-                                
-                                # Only include players with meaningful minutes
-                                if avg_minutes >= 5 or games_played >= 2:
-                                    players_list.append({
-                                        'id': player_id,
-                                        'full_name': data['full_name'],
-                                        'avg_minutes': avg_minutes,
-                                        'games_played': games_played
-                                    })
-                            
-                            # Sort by minutes
-                            players_list = sorted(players_list, key=lambda x: x['avg_minutes'], reverse=True)
-                            
-                            if players_list:
-                                logger.info(f"Built team roster from box scores for team {team_id}")
-                                self.cache[cache_key] = (datetime.now(), players_list)
-                                return players_list
-                except Exception as e3:
-                    logger.warning(f"Failed to build roster from box scores: {str(e3)}")
-            
-            # If still no data, give up
-            if dashboard is None or dashboard.empty:
-                logger.error(f"Could not get player data for team {team_id} after all attempts")
-                return []
-            
-            # Process the dashboard/roster data
-            players_list = []
-            
-            for _, row in dashboard.iterrows():
-                # Get player ID
-                player_id = row['PLAYER_ID'] if 'PLAYER_ID' in row.index else None
-                
-                if player_id is None:
-                    continue
-                
-                # Try to extract name (different endpoints use different field names)
-                player_name = None
-                for name_field in ['PLAYER_NAME', 'PLAYER', 'NAME']:
-                    if name_field in row.index:
-                        player_name = row[name_field]
-                        break
-                
-                if player_name is None:
-                    continue
-                
-                # Try to get minutes information from the dashboard
-                avg_minutes = None
-                for min_field in ['MIN', 'GP_MIN', 'AVG_MIN']:
-                    if min_field in row.index:
-                        try:
-                            avg_minutes = self._convert_minutes(row[min_field])
-                            break
-                        except:
-                            pass
-                
-                # Get player games with a timeout
-                player_games = None
-                
-                # Only try fetching games if we don't have minutes yet
-                if avg_minutes is None:
-                    start_time = time.time()
-                    while time.time() - start_time < 2.0:  # 2-second timeout per player
-                        try:
-                            player_games = self.get_player_recent_games(player_id, 5)
-                            break
-                        except Exception:
-                            time.sleep(0.5)
-                    
-                    # If we got games, extract minutes
-                    if player_games is not None and len(player_games) > 0:
-                        if 'MIN' in player_games.columns:
-                            avg_minutes = player_games['MIN'].mean()
-                
-                # If still no minutes, use a default if player appears to be active
-                if avg_minutes is None:
-                    # Check if there's a games played field
-                    for gp_field in ['GP', 'GAMES_PLAYED']:
-                        if gp_field in row.index and pd.to_numeric(row[gp_field], errors='coerce') > 0:
-                            avg_minutes = 10  # Conservative default
-                            break
-                    
-                    # Last resort default
-                    if avg_minutes is None:
-                        avg_minutes = 5
-                
-                # Check if player is actually active (minutes threshold lowered to include more bench players)
-                if avg_minutes >= 5:
-                    players_list.append({
-                        'id': player_id,
-                        'full_name': player_name,
-                        'avg_minutes': avg_minutes
-                    })
-                    
-            # Sort by minutes played (most important players first)
-            players_list = sorted(players_list, key=lambda x: x['avg_minutes'], reverse=True)
+            # Calculate advanced metrics
+            stats = self._calculate_team_metrics(team_games)
             
             # Cache the results
-            self.cache[cache_key] = (datetime.now(), players_list)
+            self._cache_stats(team_id, 'team', 'advanced', stats)
             
-            return players_list
+            return stats
             
         except Exception as e:
-            logger.error(f"Error getting team players for {team_id}: {str(e)}")
+            logging.error(f"Error getting advanced team stats: {e}")
+            return {}
+
+    def _calculate_team_metrics(self, games_df: pd.DataFrame) -> Dict:
+        """Calculate advanced team metrics from game logs"""
+        try:
+            # Ensure numeric columns
+            numeric_cols = ['PTS', 'FGA', 'FGM', 'FG3A', 'FG3M', 'FTA', 'FTM', 
+                           'OREB', 'DREB', 'REB', 'AST', 'TOV', 'STL', 'BLK', 'PF']
+            
+            for col in numeric_cols:
+                if col in games_df.columns:
+                    games_df[col] = pd.to_numeric(games_df[col], errors='coerce').fillna(0)
+            
+            # Basic averages
+            stats = {
+                'games_played': len(games_df),
+                'pts_avg': games_df['PTS'].mean(),
+                'pts_std': games_df['PTS'].std(),
+                'fg_pct': games_df['FGM'].sum() / max(1, games_df['FGA'].sum()),
+                'fg3_pct': games_df['FG3M'].sum() / max(1, games_df['FG3A'].sum()),
+                'ft_pct': games_df['FTM'].sum() / max(1, games_df['FTA'].sum()),
+            }
+            
+            # Advanced metrics
+            # Effective Field Goal Percentage
+            stats['efg_pct'] = (games_df['FGM'].sum() + 0.5 * games_df['FG3M'].sum()) / max(1, games_df['FGA'].sum())
+            
+            # True Shooting Percentage
+            total_pts = games_df['PTS'].sum()
+            total_fga = games_df['FGA'].sum()
+            total_fta = games_df['FTA'].sum()
+            stats['ts_pct'] = total_pts / max(1, 2 * (total_fga + 0.44 * total_fta))
+            
+            # Pace (possessions per game)
+            # Estimate possessions = FGA + 0.44*FTA + TOV - OREB
+            possessions = games_df['FGA'] + 0.44 * games_df['FTA'] + games_df['TOV'] - games_df['OREB']
+            stats['pace'] = possessions.mean()
+            
+            # Offensive Rating (points per 100 possessions)
+            stats['off_rating'] = (total_pts / max(1, possessions.sum())) * 100
+            
+            # Assist Rate
+            total_ast = games_df['AST'].sum()
+            total_fgm = games_df['FGM'].sum()
+            stats['ast_rate'] = total_ast / max(1, total_fgm)
+            
+            # Turnover Rate
+            stats['tov_rate'] = games_df['TOV'].sum() / max(1, possessions.sum()) * 100
+            
+            # Rebound Rate (estimate)
+            stats['reb_rate'] = games_df['REB'].mean()
+            
+            # Four Factors
+            stats['four_factors'] = {
+                'efg_pct': stats['efg_pct'],
+                'tov_rate': stats['tov_rate'],
+                'oreb_pct': games_df['OREB'].sum() / max(1, games_df['REB'].sum()),
+                'ft_rate': total_fta / max(1, total_fga)
+            }
+            
+            # Recent form (last 10 games)
+            if len(games_df) >= 10:
+                recent_games = games_df.head(10)
+                stats['recent_form'] = {
+                    'pts_avg_l10': recent_games['PTS'].mean(),
+                    'fg_pct_l10': recent_games['FGM'].sum() / max(1, recent_games['FGA'].sum()),
+                    'wins_l10': (recent_games['WL'] == 'W').sum(),
+                    'pts_trend': self._calculate_trend(recent_games['PTS'])
+                }
+            
+            # Home/Road splits
+            if 'MATCHUP' in games_df.columns:
+                home_games = games_df[games_df['MATCHUP'].str.contains('vs.', na=False)]
+                road_games = games_df[games_df['MATCHUP'].str.contains('@', na=False)]
+                
+                if not home_games.empty and not road_games.empty:
+                    stats['home_road_splits'] = {
+                        'home_pts_avg': home_games['PTS'].mean(),
+                        'road_pts_avg': road_games['PTS'].mean(),
+                        'home_wins': (home_games['WL'] == 'W').sum(),
+                        'road_wins': (road_games['WL'] == 'W').sum(),
+                        'home_games': len(home_games),
+                        'road_games': len(road_games)
+                    }
+            
+            return stats
+            
+        except Exception as e:
+            logging.error(f"Error calculating advanced team metrics: {e}")
+            return {}
+
+    def get_player_stats(self, player_id: int, season: str = '2023-24') -> Dict:
+        """Get comprehensive player statistics with advanced metrics"""
+        try:
+            # Check cache first
+            cached_data = self._get_cached_stats(player_id, 'player', 'enhanced')
+            if cached_data:
+                return cached_data
+            
+            self._rate_limit()
+            
+            # Get player game logs with error handling
+            try:
+                player_games_endpoint = PlayerGameLogs(
+                    player_id_nullable=player_id,
+                    season_nullable=season,
+                    headers=self._get_headers()
+                )
+                
+                # Get the data frames - handle different response structures
+                data_frames = self._safe_get_data_frames(player_games_endpoint)
+                
+                if not data_frames or len(data_frames) == 0:
+                    logging.warning(f"No data frames returned for player {player_id}")
+                    return {}
+                    
+                player_games = data_frames[0]
+                
+            except Exception as api_error:
+                logging.error(f"NBA API error for player {player_id}: {api_error}")
+                # Return empty dict if API fails
+                return {}
+            
+            if player_games.empty:
+                return {}
+            
+            # Calculate enhanced metrics
+            stats = self._calculate_player_metrics(player_games)
+            
+            # Get additional context
+            stats.update(self._get_player_context(player_id, player_games))
+            
+            # Cache the results
+            self._cache_stats(player_id, 'player', 'enhanced', stats)
+            
+            return stats
+            
+        except Exception as e:
+            logging.error(f"Error getting enhanced player stats: {e}")
+            return {}
+
+    def _calculate_player_metrics(self, games_df: pd.DataFrame) -> Dict:
+        """Calculate enhanced player metrics"""
+        try:
+            # Convert minutes to numeric
+            games_df['MIN'] = games_df['MIN'].apply(self._convert_minutes)
+            
+            # Ensure numeric columns
+            numeric_cols = ['PTS', 'FGA', 'FGM', 'FG3A', 'FG3M', 'FTA', 'FTM', 
+                           'OREB', 'DREB', 'REB', 'AST', 'TOV', 'STL', 'BLK', 'PF', 'MIN']
+            
+            for col in numeric_cols:
+                if col in games_df.columns:
+                    games_df[col] = pd.to_numeric(games_df[col], errors='coerce').fillna(0)
+            
+            # Filter out DNP games
+            active_games = games_df[games_df['MIN'] > 0]
+            
+            if active_games.empty:
+                return {'status': 'inactive'}
+            
+            # Basic stats
+            stats = {
+                'games_played': len(active_games),
+                'minutes_avg': active_games['MIN'].mean(),
+                'minutes_std': active_games['MIN'].std(),
+                'pts_avg': active_games['PTS'].mean(),
+                'pts_std': active_games['PTS'].std(),
+                'pts_per_min': active_games['PTS'].sum() / max(1, active_games['MIN'].sum()),
+                'usage_estimate': self._estimate_usage(active_games)
+            }
+            
+            # Shooting efficiency
+            total_fgm = active_games['FGM'].sum()
+            total_fga = active_games['FGA'].sum()
+            total_fg3m = active_games['FG3M'].sum()
+            total_fg3a = active_games['FG3A'].sum()
+            total_ftm = active_games['FTM'].sum()
+            total_fta = active_games['FTA'].sum()
+            
+            stats['shooting'] = {
+                'fg_pct': total_fgm / max(1, total_fga),
+                'fg3_pct': total_fg3m / max(1, total_fg3a),
+                'ft_pct': total_ftm / max(1, total_fta),
+                'efg_pct': (total_fgm + 0.5 * total_fg3m) / max(1, total_fga),
+                'ts_pct': active_games['PTS'].sum() / max(1, 2 * (total_fga + 0.44 * total_fta))
+            }
+            
+            # Per-36 minute stats
+            total_minutes = active_games['MIN'].sum()
+            if total_minutes > 0:
+                stats['per_36'] = {
+                    'pts': active_games['PTS'].sum() * 36 / total_minutes,
+                    'reb': active_games['REB'].sum() * 36 / total_minutes,
+                    'ast': active_games['AST'].sum() * 36 / total_minutes,
+                    'stl': active_games['STL'].sum() * 36 / total_minutes,
+                    'blk': active_games['BLK'].sum() * 36 / total_minutes,
+                    'tov': active_games['TOV'].sum() * 36 / total_minutes
+                }
+            
+            # Consistency metrics
+            if len(active_games) > 1:
+                stats['consistency'] = {
+                    'pts_cv': stats['pts_std'] / max(1, stats['pts_avg']),  # Coefficient of variation
+                    'double_digit_games': (active_games['PTS'] >= 10).sum(),
+                    'single_digit_games': (active_games['PTS'] < 10).sum(),
+                    'big_games': (active_games['PTS'] >= stats['pts_avg'] * 1.5).sum()
+                }
+            
+            # Recent form analysis
+            if len(active_games) >= 5:
+                recent_5 = active_games.head(5)
+                recent_10 = active_games.head(10) if len(active_games) >= 10 else active_games
+                
+                stats['recent_form'] = {
+                    'pts_l5': recent_5['PTS'].mean(),
+                    'pts_l10': recent_10['PTS'].mean(),
+                    'min_l5': recent_5['MIN'].mean(),
+                    'min_l10': recent_10['MIN'].mean(),
+                    'trend_l10': self._calculate_trend(recent_10['PTS']),
+                    'hot_streak': self._identify_streak(active_games['PTS'], stats['pts_avg'])
+                }
+            
+            # Situational performance
+            stats['situational'] = self._analyze_situational_performance(active_games, stats['pts_avg'])
+            
+            return stats
+            
+        except Exception as e:
+            logging.error(f"Error calculating enhanced player metrics: {e}")
+            return {}
+
+    def _estimate_usage(self, games_df: pd.DataFrame) -> float:
+        """Estimate player usage rate from available stats"""
+        try:
+            # Usage Rate approximation: (FGA + 0.44*FTA + TOV) / Team possessions * (Team MIN / Player MIN)
+            # Simplified version using available data
+            
+            player_possessions = games_df['FGA'] + 0.44 * games_df['FTA'] + games_df['TOV']
+            player_minutes = games_df['MIN']
+            
+            # Estimate team possessions (rough approximation)
+            # Assume team has ~100 possessions per game on average
+            estimated_team_poss_per_min = 100 / 48  # ~2.08 per minute
+            
+            usage_estimates = []
+            for _, game in games_df.iterrows():
+                if game['MIN'] > 0:
+                    game_team_poss = estimated_team_poss_per_min * game['MIN']
+                    game_usage = game['FGA'] + 0.44 * game['FTA'] + game['TOV']
+                    usage_rate = game_usage / max(1, game_team_poss)
+                    usage_estimates.append(min(1.0, usage_rate))  # Cap at 100%
+            
+            return np.mean(usage_estimates) if usage_estimates else 0.2
+            
+        except:
+            # Fallback estimation based on minutes and points
+            if games_df['MIN'].mean() >= 30:
+                return 0.25  # High usage
+            elif games_df['MIN'].mean() >= 20:
+                return 0.20  # Medium usage
+            else:
+                return 0.15  # Low usage
+
+    def _calculate_trend(self, values: pd.Series) -> float:
+        """Calculate linear trend (slope) of a series"""
+        try:
+            if len(values) < 2:
+                return 0.0
+            
+            x = np.arange(len(values))
+            y = values.values
+            
+            # Linear regression slope
+            slope = np.polyfit(x, y, 1)[0]
+            return float(slope)
+            
+        except:
+            return 0.0
+
+    def _identify_streak(self, values: pd.Series, average: float) -> Dict:
+        """Identify hot/cold streaks"""
+        try:
+            if len(values) < 3:
+                return {'type': 'none', 'length': 0}
+            
+            # Recent 3 games
+            recent_3 = values.head(3)
+            above_avg = (recent_3 > average).sum()
+            
+            if above_avg >= 2:
+                return {'type': 'hot', 'length': above_avg, 'avg_over_last_3': recent_3.mean()}
+            elif above_avg == 0:
+                return {'type': 'cold', 'length': 3, 'avg_over_last_3': recent_3.mean()}
+            else:
+                return {'type': 'neutral', 'length': 0, 'avg_over_last_3': recent_3.mean()}
+                
+        except:
+            return {'type': 'none', 'length': 0}
+
+    def _analyze_situational_performance(self, games_df: pd.DataFrame, avg_pts: float) -> Dict:
+        """Analyze performance in different situations"""
+        try:
+            situational = {}
+            
+            # Home vs Away performance
+            if 'MATCHUP' in games_df.columns:
+                home_games = games_df[games_df['MATCHUP'].str.contains('vs.', na=False)]
+                away_games = games_df[games_df['MATCHUP'].str.contains('@', na=False)]
+                
+                if not home_games.empty and not away_games.empty:
+                    situational['home_away'] = {
+                        'home_pts_avg': home_games['PTS'].mean(),
+                        'away_pts_avg': away_games['PTS'].mean(),
+                        'home_advantage': home_games['PTS'].mean() - away_games['PTS'].mean(),
+                        'home_games': len(home_games),
+                        'away_games': len(away_games)
+                    }
+            
+            # Performance vs rest
+            if len(games_df) >= 2:
+                rest_performance = self._analyze_rest_performance(games_df)
+                situational['rest'] = rest_performance
+            
+            # Minutes correlation with performance
+            if len(games_df) >= 5:
+                minutes_corr = np.corrcoef(games_df['MIN'], games_df['PTS'])[0, 1]
+                situational['minutes_correlation'] = minutes_corr if not np.isnan(minutes_corr) else 0
+            
+            return situational
+            
+        except Exception as e:
+            logging.error(f"Error in situational analysis: {e}")
+            return {}
+
+    def _analyze_rest_performance(self, games_df: pd.DataFrame) -> Dict:
+        """Analyze performance based on rest days"""
+        try:
+            # Calculate rest days between games
+            game_dates = pd.to_datetime(games_df['GAME_DATE'])
+            rest_days = []
+            
+            for i in range(len(game_dates) - 1):
+                rest = (game_dates.iloc[i] - game_dates.iloc[i + 1]).days
+                rest_days.append(rest)
+            
+            if not rest_days:
+                return {}
+            
+            # Add rest days to dataframe (shifted by 1 since rest is before the game)
+            games_with_rest = games_df.iloc[:-1].copy()
+            games_with_rest['REST_DAYS'] = rest_days
+            
+            # Analyze performance by rest
+            b2b_games = games_with_rest[games_with_rest['REST_DAYS'] == 1]  # Back-to-back
+            normal_rest = games_with_rest[games_with_rest['REST_DAYS'].between(2, 3)]
+            long_rest = games_with_rest[games_with_rest['REST_DAYS'] >= 4]
+            
+            rest_analysis = {}
+            
+            if not b2b_games.empty:
+                rest_analysis['back_to_back'] = {
+                    'games': len(b2b_games),
+                    'pts_avg': b2b_games['PTS'].mean(),
+                    'min_avg': b2b_games['MIN'].mean()
+                }
+            
+            if not normal_rest.empty:
+                rest_analysis['normal_rest'] = {
+                    'games': len(normal_rest),
+                    'pts_avg': normal_rest['PTS'].mean(),
+                    'min_avg': normal_rest['MIN'].mean()
+                }
+            
+            if not long_rest.empty:
+                rest_analysis['long_rest'] = {
+                    'games': len(long_rest),
+                    'pts_avg': long_rest['PTS'].mean(),
+                    'min_avg': long_rest['MIN'].mean()
+                }
+            
+            return rest_analysis
+            
+        except Exception as e:
+            logging.error(f"Error analyzing rest performance: {e}")
+            return {}
+
+    def _get_player_context(self, player_id: int, games_df: pd.DataFrame) -> Dict:
+        """Get additional context about player"""
+        try:
+            context = {}
+            
+            # Get player info with error handling
+            self._rate_limit()
+            try:
+                player_info_endpoint = CommonPlayerInfo(
+                    player_id=player_id,
+                    headers=self._get_headers()
+                )
+                
+                # Get the data frames
+                data_frames = self._safe_get_data_frames(player_info_endpoint)
+                
+                if data_frames and len(data_frames) > 0:
+                    player_info = data_frames[0]
+                    
+                    if not player_info.empty:
+                        context['position'] = player_info['POSITION'].iloc[0] if 'POSITION' in player_info.columns else None
+                        context['height'] = player_info['HEIGHT'].iloc[0] if 'HEIGHT' in player_info.columns else None
+                        context['weight'] = player_info['WEIGHT'].iloc[0] if 'WEIGHT' in player_info.columns else None
+                        context['experience'] = player_info['SEASON_EXP'].iloc[0] if 'SEASON_EXP' in player_info.columns else None
+                        
+            except Exception as e:
+                logging.warning(f"Could not get player info for {player_id}: {e}")
+            
+            # Role analysis based on minutes and usage
+            avg_minutes = games_df['MIN'].mean()
+            if avg_minutes >= 32:
+                context['role'] = 'star'
+            elif avg_minutes >= 24:
+                context['role'] = 'starter'
+            elif avg_minutes >= 15:
+                context['role'] = 'rotation'
+            else:
+                context['role'] = 'bench'
+            
+            return context
+            
+        except Exception as e:
+            logging.error(f"Error getting player context: {e}")
+            return {}
+
+    def _convert_minutes(self, min_str):
+        """Convert minutes string to float"""
+        if pd.isna(min_str) or min_str == '':
+            return 0.0
+        
+        try:
+            if isinstance(min_str, (int, float)):
+                return float(min_str)
+            
+            if isinstance(min_str, str):
+                if ':' in min_str:
+                    parts = min_str.split(':')
+                    if len(parts) == 2:
+                        minutes = float(parts[0])
+                        seconds = float(parts[1]) / 60
+                        return minutes + seconds
+                else:
+                    return float(min_str)
+            
+            return float(min_str)
+        except:
+            return 0.0
+
+    def get_game_context(self, team_id: int, game_date: str = None) -> GameContext:
+        """Get contextual information for a game"""
+        try:
+            # Get recent games to calculate rest
+            recent_games = self.get_team_recent_games(team_id, n_games=5)
+            if recent_games is None or len(recent_games) < 2:
+                return GameContext(
+                    rest_days=1,
+                    is_back_to_back=False,
+                    home_game=True,
+                    opponent_strength=0.5,
+                    season_progress=0.5,
+                    injury_impact=0.0
+                )
+            
+            # Calculate rest days
+            game_dates = pd.to_datetime(recent_games['GAME_DATE'])
+            rest_days = (game_dates.iloc[0] - game_dates.iloc[1]).days
+            is_back_to_back = rest_days == 1
+            
+            # Check if most recent game was home
+            home_game = 'vs.' in str(recent_games['MATCHUP'].iloc[0])
+            
+            # Season progress (approximate)
+            season_progress = self._calculate_season_progress()
+            
+            # Injury impact from team
+            injury_impact = 0.0  # Will be set by main predictor
+            
+            return GameContext(
+                rest_days=rest_days,
+                is_back_to_back=is_back_to_back,
+                home_game=home_game,
+                opponent_strength=0.5,  # Default, will be calculated with opponent data
+                season_progress=season_progress,
+                injury_impact=injury_impact
+            )
+            
+        except Exception as e:
+            logging.error(f"Error getting game context: {e}")
+            return GameContext(1, False, True, 0.5, 0.5, 0.0)
+
+    def _calculate_season_progress(self) -> float:
+        """Calculate season progress (0-1)"""
+        try:
+            now = datetime.now()
+            
+            # NBA season typically runs October-April
+            if now.month >= 10:  # October-December
+                season_start = datetime(now.year, 10, 15)  # Season usually starts mid-October
+                season_end = datetime(now.year + 1, 4, 15)   # Regular season ends mid-April
+            else:  # January-April
+                season_start = datetime(now.year - 1, 10, 15)
+                season_end = datetime(now.year, 4, 15)
+            
+            total_days = (season_end - season_start).days
+            current_days = (now - season_start).days
+            
+            return max(0, min(1, current_days / total_days))
+            
+        except:
+            return 0.5
+
+    def get_team_recent_games(self, team_id: int, n_games: int = 10, season: str = None) -> pd.DataFrame:
+        """Enhanced team game fetching with caching"""
+        try:
+            # Check cache first
+            cached_games = self._get_cached_team_games(team_id, season)
+            if cached_games is not None and len(cached_games) >= n_games:
+                return cached_games.head(n_games)
+            
+            self._rate_limit()
+            
+            # Fetch from API with error handling
+            try:
+                if season:
+                    games_endpoint = TeamGameLogs(
+                        team_id_nullable=team_id,
+                        season_nullable=season,
+                        headers=self._get_headers()
+                    )
+                else:
+                    games_endpoint = TeamGameLogs(
+                        team_id_nullable=team_id,
+                        headers=self._get_headers()
+                    )
+                
+                # Get the data frames
+                data_frames = self._safe_get_data_frames(games_endpoint)
+                
+                if not data_frames or len(data_frames) == 0:
+                    logging.warning(f"No data frames returned for team games {team_id}")
+                    return None
+                    
+                games = data_frames[0]
+                
+            except Exception as api_error:
+                logging.error(f"NBA API error getting team games for {team_id}: {api_error}")
+                return None
+            
+            if games.empty:
+                return None
+            
+            # Cache the games
+            self._cache_team_games(team_id, games, season)
+            
+            return games.head(n_games)
+            
+        except Exception as e:
+            logging.error(f"Error getting team games: {e}")
+            return None
+
+    def get_player_recent_games(self, player_id: int, n_games: int = 15) -> pd.DataFrame:
+        """Enhanced player game fetching with caching"""
+        try:
+            # Check cache first
+            cached_games = self._get_cached_player_games(player_id)
+            if cached_games is not None and len(cached_games) >= n_games:
+                return cached_games.head(n_games)
+            
+            self._rate_limit()
+            
+            # Fetch from API with error handling
+            try:
+                games_endpoint = PlayerGameLogs(
+                    player_id_nullable=player_id,
+                    headers=self._get_headers()
+                )
+                
+                # Get the data frames
+                data_frames = self._safe_get_data_frames(games_endpoint)
+                
+                if not data_frames or len(data_frames) == 0:
+                    logging.warning(f"No data frames returned for player games {player_id}")
+                    return None
+                    
+                games = data_frames[0]
+                
+            except Exception as api_error:
+                logging.error(f"NBA API error getting player games for {player_id}: {api_error}")
+                return None
+            
+            if games.empty:
+                return None
+            
+            # Cache the games
+            self._cache_player_games(player_id, games)
+            
+            return games.head(n_games)
+            
+        except Exception as e:
+            logging.error(f"Error getting player games: {e}")
+            return None
+
+    # Caching methods
+    def _get_cached_team_games(self, team_id: int, season: str = None) -> pd.DataFrame:
+        """Get cached team games"""
+        try:
+            conn = sqlite3.connect(self.cache_db_path)
+            
+            query = '''
+                SELECT data FROM team_games 
+                WHERE team_id = ? AND season = ? 
+                AND created_at > datetime('now', '-1 day')
+                ORDER BY created_at DESC LIMIT 1
+            '''
+            
+            cursor = conn.execute(query, (team_id, season or '2023-24'))
+            row = cursor.fetchone()
+            conn.close()
+            
+            if row:
+                # Load as dict first, then convert to DataFrame
+                games_dict = json.loads(row[0])
+                return pd.DataFrame(games_dict)
+            return None
+            
+        except Exception as e:
+            logging.error(f"Error getting cached team games: {e}")
+            return None
+
+    def _cache_team_games(self, team_id: int, games_df: pd.DataFrame, season: str = None):
+        """Cache team games"""
+        try:
+            conn = sqlite3.connect(self.cache_db_path)
+            
+            # Convert DataFrame to JSON with proper type handling
+            # First convert to dict to handle numpy types
+            games_dict = games_df.to_dict('records')
+            games_json = json.dumps(games_dict, default=self._json_serializer)
+            
+            # Insert into cache
+            conn.execute('''
+                INSERT INTO team_games (team_id, season, data)
+                VALUES (?, ?, ?)
+            ''', (team_id, season or '2023-24', games_json))
+            
+            conn.commit()
+            conn.close()
+            
+        except Exception as e:
+            logging.error(f"Error caching team games: {e}")
+
+    def _get_cached_player_games(self, player_id: int) -> pd.DataFrame:
+        """Get cached player games"""
+        try:
+            conn = sqlite3.connect(self.cache_db_path)
+            
+            query = '''
+                SELECT data FROM player_games 
+                WHERE player_id = ? 
+                AND created_at > datetime('now', '-1 day')
+                ORDER BY created_at DESC LIMIT 1
+            '''
+            
+            cursor = conn.execute(query, (player_id,))
+            row = cursor.fetchone()
+            conn.close()
+            
+            if row:
+                # Load as dict first, then convert to DataFrame
+                games_dict = json.loads(row[0])
+                return pd.DataFrame(games_dict)
+            return None
+            
+        except Exception as e:
+            logging.error(f"Error getting cached player games: {e}")
+            return None
+
+    def _cache_player_games(self, player_id: int, games_df: pd.DataFrame):
+        """Cache player games"""
+        try:
+            conn = sqlite3.connect(self.cache_db_path)
+            
+            # Convert DataFrame to JSON with proper type handling
+            # First convert to dict to handle numpy types
+            games_dict = games_df.to_dict('records')
+            games_json = json.dumps(games_dict, default=self._json_serializer)
+            
+            # Insert into cache
+            conn.execute('''
+                INSERT INTO player_games (player_id, data)
+                VALUES (?, ?)
+            ''', (player_id, games_json))
+            
+            conn.commit()
+            conn.close()
+            
+        except Exception as e:
+            logging.error(f"Error caching player games: {e}")
+
+    def _get_cached_stats(self, entity_id: int, entity_type: str, stat_type: str) -> Dict:
+        """Get cached advanced stats"""
+        try:
+            conn = sqlite3.connect(self.cache_db_path)
+            
+            query = '''
+                SELECT data FROM advanced_stats 
+                WHERE entity_id = ? AND entity_type = ? AND stat_type = ?
+                AND created_at > datetime('now', '-12 hours')
+                ORDER BY created_at DESC LIMIT 1
+            '''
+            
+            cursor = conn.execute(query, (entity_id, entity_type, stat_type))
+            row = cursor.fetchone()
+            conn.close()
+            
+            if row:
+                return json.loads(row[0])
+            return None
+            
+        except Exception as e:
+            logging.error(f"Error getting cached advanced stats: {e}")
+            return None
+
+    def _cache_stats(self, entity_id: int, entity_type: str, stat_type: str, stats: Dict):
+        """Cache advanced stats"""
+        try:
+            conn = sqlite3.connect(self.cache_db_path)
+            
+            # Convert stats to JSON with proper type handling
+            stats_json = json.dumps(stats, default=self._json_serializer)
+            
+            # Insert into cache
+            conn.execute('''
+                INSERT INTO advanced_stats (entity_id, entity_type, stat_type, data)
+                VALUES (?, ?, ?, ?)
+            ''', (entity_id, entity_type, stat_type, stats_json))
+            
+            conn.commit()
+            conn.close()
+            
+        except Exception as e:
+            logging.error(f"Error caching advanced stats: {e}")
+
+    def get_matchup_history(self, team1_id: int, team2_id: int, n_games: int = 5) -> Dict:
+        """Get head-to-head matchup history between two teams"""
+        try:
+            # Get recent games for both teams
+            team1_games = self.get_team_recent_games(team1_id, n_games=20)
+            team2_games = self.get_team_recent_games(team2_id, n_games=20)
+            
+            if team1_games is None or team2_games is None:
+                return {}
+            
+            # Find matchups between these teams
+            team1_abbr = self._get_team_abbreviation(team1_id)
+            team2_abbr = self._get_team_abbreviation(team2_id)
+            
+            if not team1_abbr or not team2_abbr:
+                return {}
+            
+            # Find games where team1 played team2
+            team1_vs_team2 = team1_games[
+                team1_games['MATCHUP'].str.contains(team2_abbr, na=False)
+            ].head(n_games)
+            
+            # Find games where team2 played team1
+            team2_vs_team1 = team2_games[
+                team2_games['MATCHUP'].str.contains(team1_abbr, na=False)
+            ].head(n_games)
+            
+            # Combine and analyze
+            all_matchups = pd.concat([team1_vs_team2, team2_vs_team1])
+            
+            if all_matchups.empty:
+                return {}
+            
+            # Calculate head-to-head stats
+            h2h_stats = {
+                'total_games': len(all_matchups),
+                'avg_total_points': all_matchups['PTS'].mean(),
+                'high_scoring_games': (all_matchups['PTS'] > 120).sum(),
+                'low_scoring_games': (all_matchups['PTS'] < 100).sum(),
+                'recent_trend': self._calculate_trend(all_matchups['PTS'])
+            }
+            
+            return h2h_stats
+            
+        except Exception as e:
+            logging.error(f"Error getting matchup history: {e}")
+            return {}
+
+    def _get_team_abbreviation(self, team_id: int) -> str:
+        """Get team abbreviation from team ID"""
+        try:
+            team_info = next((t for t in teams.get_teams() if t['id'] == team_id), None)
+            return team_info['abbreviation'] if team_info else None
+        except:
+            return None
+
+    def get_team_players(self, team_id: int) -> List[Dict]:
+        """Get team players list"""
+        try:
+            from nba_api.stats.static import players
+            
+            # This is a simplified implementation
+            # In a real scenario, you'd want to get current roster from API
+            all_players = players.get_players()
+            
+            # Return a sample of players (this should be replaced with actual roster API call)
+            sample_players = all_players[:12]  # Get first 12 as sample
+            
+            return [{
+                'id': player['id'],
+                'full_name': player['full_name']
+            } for player in sample_players]
+            
+        except Exception as e:
+            logging.error(f"Error getting team players: {e}")
             return []
+    
+    def cleanup_cache(self, days_old: int = 7):
+        """Clean up old cache entries"""
+        try:
+            conn = sqlite3.connect(self.cache_db_path)
+            
+            # Delete old entries
+            conn.execute('''
+                DELETE FROM team_games 
+                WHERE created_at < datetime('now', '-{} days')
+            '''.format(days_old))
+            
+            conn.execute('''
+                DELETE FROM player_games 
+                WHERE created_at < datetime('now', '-{} days')
+            '''.format(days_old))
+            
+            conn.execute('''
+                DELETE FROM advanced_stats 
+                WHERE created_at < datetime('now', '-{} days')
+            '''.format(days_old))
+            
+            conn.commit()
+            conn.close()
+            
+            logging.info(f"Cleaned up cache entries older than {days_old} days")
+            
+            
+        except Exception as e:
+            logging.error(f"Error cleaning up cache: {e}")

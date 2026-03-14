@@ -1,0 +1,72 @@
+2025-06-25 18:45:12,814 - __main__ - INFO - === Enhanced NBA Prediction Model Training ===
+2025-06-25 18:45:12,814 - __main__ - INFO - Started at: 2025-06-25 18:45:12
+2025-06-25 18:45:12,815 - __main__ - INFO - All required dependencies found
+2025-06-25 18:45:12,816 - __main__ - INFO - Initializing prediction system...
+2025-06-25 18:45:12,836 - root - INFO - Enhanced models loaded successfully
+2025-06-25 18:45:12,837 - root - INFO - Enhanced models loaded successfully
+2025-06-25 18:45:12,837 - __main__ - INFO - Running full training pipeline...
+2025-06-25 18:45:12,837 - __main__ - INFO - Starting model training...
+2025-06-25 18:45:12,837 - root - INFO - Training enhanced models...
+2025-06-25 18:45:12,838 - root - INFO - Preparing enhanced team training data...
+2025-06-25 18:47:55,573 - root - INFO - Collected 2700 team training samples
+2025-06-25 18:47:55,581 - root - INFO - Preparing enhanced player training data...
+2025-06-25 19:27:46,094 - root - ERROR - Error getting enhanced player stats: ('Connection aborted.', RemoteDisconnected('Remote end closed connection without response'))
+2025-06-25 19:28:05,618 - root - ERROR - Error getting enhanced player stats: ('Connection aborted.', RemoteDisconnected('Remote end closed connection without response'))
+2025-06-25 19:28:35,747 - root - ERROR - Error getting enhanced player stats: HTTPSConnectionPool(host='stats.nba.com', port=443): Read timed out. (read timeout=30)
+2025-06-25 19:28:57,871 - root - ERROR - Error getting enhanced player stats: ('Connection aborted.', RemoteDisconnected('Remote end closed connection without response'))
+2025-06-25 19:29:28,115 - root - ERROR - Error getting enhanced player stats: HTTPSConnectionPool(host='stats.nba.com', port=443): Read timed out. (read timeout=30)
+2025-06-25 19:29:58,503 - root - ERROR - Error getting enhanced player stats: HTTPSConnectionPool(host='stats.nba.com', port=443): Read timed out. (read timeout=30)
+2025-06-25 19:30:20,477 - root - ERROR - Error getting enhanced player stats: ('Connection aborted.', RemoteDisconnected('Remote end closed connection without response'))
+2025-06-25 19:30:50,699 - root - ERROR - Error getting enhanced player stats: HTTPSConnectionPool(host='stats.nba.com', port=443): Read timed out. (read timeout=30)
+2025-06-25 19:31:20,913 - root - ERROR - Error getting enhanced player stats: HTTPSConnectionPool(host='stats.nba.com', port=443): Read timed out. (read timeout=30)
+2025-06-25 19:31:40,384 - root - ERROR - Error getting enhanced player stats: ('Connection aborted.', RemoteDisconnected('Remote end closed connection without response'))
+2025-06-25 19:32:10,664 - root - ERROR - Error getting enhanced player stats: HTTPSConnectionPool(host='stats.nba.com', port=443): Read timed out. (read timeout=30)
+2025-06-25 19:32:35,776 - root - ERROR - Error getting enhanced player stats: ('Connection aborted.', RemoteDisconnected('Remote end closed connection without response'))
+2025-06-25 19:33:05,981 - root - ERROR - Error getting enhanced player stats: HTTPSConnectionPool(host='stats.nba.com', port=443): Read timed out. (read timeout=30)
+2025-06-25 19:33:36,184 - root - ERROR - Error getting enhanced player stats: HTTPSConnectionPool(host='stats.nba.com', port=443): Read timed out. (read timeout=30)
+2025-06-25 19:34:11,974 - root - ERROR - Error getting enhanced player stats: HTTPSConnectionPool(host='stats.nba.com', port=443): Read timed out. (read timeout=30)
+2025-06-25 19:34:47,082 - root - ERROR - Error getting player games: HTTPSConnectionPool(host='stats.nba.com', port=443): Read timed out. (read timeout=30)
+2025-06-25 19:35:22,382 - root - ERROR - Error getting player games: HTTPSConnectionPool(host='stats.nba.com', port=443): Read timed out. (read timeout=30)
+2025-06-25 19:35:52,580 - root - ERROR - Error getting player games: HTTPSConnectionPool(host='stats.nba.com', port=443): Read timed out. (read timeout=30)
+2025-06-25 19:36:22,786 - root - ERROR - Error getting player games: HTTPSConnectionPool(host='stats.nba.com', port=443): Read timed out. (read timeout=30)
+2025-06-25 19:36:58,474 - root - ERROR - Error getting player games: HTTPSConnectionPool(host='stats.nba.com', port=443): Read timed out. (read timeout=30)
+2025-06-25 19:37:17,931 - root - ERROR - Error getting player games: ('Connection aborted.', RemoteDisconnected('Remote end closed connection without response'))
+2025-06-25 19:37:48,114 - root - ERROR - Error getting player games: HTTPSConnectionPool(host='stats.nba.com', port=443): Read timed out. (read timeout=30)
+2025-06-25 19:38:18,349 - root - ERROR - Error getting player games: HTTPSConnectionPool(host='stats.nba.com', port=443): Read timed out. (read timeout=30)
+2025-06-25 19:38:48,555 - root - ERROR - Error getting player games: HTTPSConnectionPool(host='stats.nba.com', port=443): Read timed out. (read timeout=30)
+2025-06-25 19:39:18,770 - root - ERROR - Error getting player games: HTTPSConnectionPool(host='stats.nba.com', port=443): Read timed out. (read timeout=30)
+2025-06-25 19:39:48,957 - root - ERROR - Error getting player games: HTTPSConnectionPool(host='stats.nba.com', port=443): Read timed out. (read timeout=30)
+2025-06-25 19:40:19,176 - root - ERROR - Error getting player games: HTTPSConnectionPool(host='stats.nba.com', port=443): Read timed out. (read timeout=30)
+2025-06-25 19:40:49,382 - root - ERROR - Error getting player games: HTTPSConnectionPool(host='stats.nba.com', port=443): Read timed out. (read timeout=30)
+2025-06-25 19:41:19,556 - root - ERROR - Error getting player games: HTTPSConnectionPool(host='stats.nba.com', port=443): Read timed out. (read timeout=30)
+2025-06-25 19:41:49,743 - root - ERROR - Error getting player games: HTTPSConnectionPool(host='stats.nba.com', port=443): Read timed out. (read timeout=30)
+2025-06-25 19:42:19,944 - root - ERROR - Error getting player games: HTTPSConnectionPool(host='stats.nba.com', port=443): Read timed out. (read timeout=30)
+2025-06-25 19:42:55,159 - root - ERROR - Error getting player games: HTTPSConnectionPool(host='stats.nba.com', port=443): Read timed out. (read timeout=30)
+2025-06-25 19:43:17,292 - root - ERROR - Error getting player games: ('Connection aborted.', RemoteDisconnected('Remote end closed connection without response'))
+2025-06-25 19:43:36,756 - root - ERROR - Error getting player games: ('Connection aborted.', RemoteDisconnected('Remote end closed connection without response'))
+2025-06-25 19:44:08,060 - root - ERROR - Error getting player games: HTTPSConnectionPool(host='stats.nba.com', port=443): Read timed out. (read timeout=30)
+2025-06-25 19:44:29,958 - root - ERROR - Error getting player games: ('Connection aborted.', RemoteDisconnected('Remote end closed connection without response'))
+2025-06-25 19:45:00,146 - root - ERROR - Error getting player games: HTTPSConnectionPool(host='stats.nba.com', port=443): Read timed out. (read timeout=30)
+2025-06-25 19:45:35,628 - root - ERROR - Error getting player games: HTTPSConnectionPool(host='stats.nba.com', port=443): Read timed out. (read timeout=30)
+2025-06-25 19:48:53,560 - root - INFO - Collected 61 player training samples
+2025-06-25 19:48:53,605 - root - INFO - Training team ensemble models...
+2025-06-25 19:48:53,854 - root - INFO - Selected 50 team features
+2025-06-25 19:48:53,876 - root - INFO - Training team model: xgb
+2025-06-25 19:48:55,113 - root - INFO - xgb CV MAE: 9.96
+2025-06-25 19:48:55,420 - root - INFO - Training team model: lgb
+2025-06-25 19:48:56,437 - root - INFO - lgb CV MAE: 10.09
+2025-06-25 19:48:56,558 - root - INFO - Training team model: rf
+2025-06-25 19:48:59,484 - root - INFO - rf CV MAE: 9.95
+2025-06-25 19:49:00,572 - root - INFO - Team ensemble weights: {'xgb': 0.3346234227162455, 'lgb': 0.3303656254074437, 'rf': 0.3350109518763108}
+2025-06-25 19:49:00,573 - root - INFO - Training player ensemble models...
+2025-06-25 19:49:00,641 - root - INFO - Training player points models...
+2025-06-25 19:49:00,754 - root - INFO - Points xgb CV MAE: 7.52
+2025-06-25 19:49:00,821 - root - INFO - Points lgb CV MAE: 9.62
+2025-06-25 19:49:01,193 - root - INFO - Points rf CV MAE: 7.52
+2025-06-25 19:49:01,322 - root - INFO - Training player minutes models...
+2025-06-25 19:49:01,425 - root - INFO - Minutes xgb CV MAE: 6.13
+2025-06-25 19:49:01,503 - root - INFO - Minutes lgb CV MAE: 9.63
+2025-06-25 19:49:01,505 - root - ERROR - Error training player ensemble: X has 30 features, but LGBMRegressor is expecting 40 features as input.
+2025-06-25 19:49:01,534 - root - ERROR - Model training failed
+2025-06-25 19:49:01,535 - __main__ - ERROR - Model training failed
+2025-06-25 19:49:01,536 - __main__ - ERROR - Model training failed

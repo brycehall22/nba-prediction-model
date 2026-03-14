@@ -1,0 +1,24 @@
+2025-06-29 18:11:36,428 - __main__ - INFO - === Enhanced NBA Prediction Model Training ===
+2025-06-29 18:11:36,428 - __main__ - INFO - Started at: 2025-06-29 18:11:36
+2025-06-29 18:11:36,428 - __main__ - INFO - All required dependencies found
+2025-06-29 18:11:36,430 - __main__ - INFO - Initializing prediction system...
+2025-06-29 18:11:36,666 - root - INFO - Enhanced models loaded successfully
+2025-06-29 18:11:36,666 - root - INFO - Enhanced models loaded successfully
+2025-06-29 18:11:36,666 - __main__ - INFO - Running in evaluation-only mode...
+2025-06-29 18:11:36,666 - __main__ - INFO - Evaluating models on 30 recent games...
+2025-06-29 18:11:43,431 - root - ERROR - Error getting advanced team stats: 'resultSet'
+2025-06-29 18:11:49,581 - root - ERROR - Error predicting team score: The feature names should match those that were passed during fit.
+Feature names seen at fit time, yet now missing:
+- SEASON_WEIGHT
+
+2025-06-29 18:11:57,450 - root - ERROR - Error getting advanced team stats: 'resultSet'
+2025-06-29 18:12:04,333 - root - ERROR - Error predicting team score: The feature names should match those that were passed during fit.
+Feature names seen at fit time, yet now missing:
+- SEASON_WEIGHT
+
+2025-06-29 18:12:11,656 - root - ERROR - Error getting advanced team stats: 'resultSet'
+2025-06-29 18:12:18,133 - root - ERROR - Error predicting team score: The feature names should match those that were passed during fit.
+Feature names seen at fit time, yet now missing:
+- SEASON_WEIGHT
+
+2025-06-29 18:12:21,397 - __main__ - INFO - Training interrupted by user

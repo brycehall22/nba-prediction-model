@@ -3,7 +3,7 @@ import pandas as pd
 import numpy as np
 from nba_api.stats.static import teams, players
 from nba_api.stats.endpoints import ScoreboardV2, teamplayerdashboard, commonplayerinfo
-from predictor import NBAPredictor, DataCollector
+from predictor import EnhancedNBAPredictor, EnhancedDataCollector
 from betting_integration import BettingDataService, PredictionCalibrator
 from player_prop_service import PlayerPropsService
 import plotly.graph_objects as go
@@ -17,7 +17,7 @@ st.set_page_config(page_title="NBA Game Prediction System", layout="wide")
 
 @st.cache_resource
 def get_predictor():
-    return NBAPredictor()
+    return EnhancedNBAPredictor()
 
 @st.cache_resource
 def get_betting_service():
@@ -232,7 +232,7 @@ st.markdown("""
 
 # Initialize services
 predictor = get_predictor()
-collector = DataCollector()
+collector = EnhancedDataCollector()
 betting_service = get_betting_service()
 calibrator = get_calibrator(betting_service)
 props_service = get_props_service()
@@ -267,11 +267,13 @@ with tab1:
     
     with col1:
         st.subheader("Home Team")
+        # amazonq-ignore-next-line
         home_team = st.selectbox("Select Home Team", all_teams['full_name'], key='home')
         home_team_id = all_teams[all_teams['full_name'] == home_team]['id'].iloc[0]
     
     with col2:
         st.subheader("Away Team")
+        # amazonq-ignore-next-line
         away_team = st.selectbox("Select Away Team", all_teams['full_name'], key='away')
         away_team_id = all_teams[all_teams['full_name'] == away_team]['id'].iloc[0]
     
@@ -1131,10 +1133,12 @@ with tab2:
     
     with col1:
         st.subheader("Home Team")
+        # amazonq-ignore-next-line
         home_team = st.selectbox("Select Home Team", all_teams['full_name'], key='props_home')
     
     with col2:
         st.subheader("Away Team")
+        # amazonq-ignore-next-line
         away_team = st.selectbox("Select Away Team", all_teams['full_name'], key='props_away')
     
     if st.button("Load Player Props", use_container_width=True):

@@ -3,7 +3,7 @@ import pandas as pd
 import numpy as np
 from nba_api.stats.static import teams, players
 from nba_api.stats.endpoints import ScoreboardV2, teamplayerdashboard, commonplayerinfo
-from predictor import EnhancedNBAPredictor, EnhancedDataCollector
+from predictor import EnhancedNBAPredictor, DataCollector
 from betting_integration import BettingDataService, PredictionCalibrator
 from player_prop_service import PlayerPropsService
 import plotly.graph_objects as go
@@ -232,7 +232,7 @@ st.markdown("""
 
 # Initialize services
 predictor = get_predictor()
-collector = EnhancedDataCollector()
+collector = DataCollector()
 betting_service = get_betting_service()
 calibrator = get_calibrator(betting_service)
 props_service = get_props_service()

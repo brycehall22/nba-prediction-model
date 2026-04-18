@@ -7,8 +7,8 @@ from dataclasses import dataclass
 import joblib
 import random
 
-# Import our enhanced modules
-from data_collector import EnhancedDataCollector, GameContext
+# Import our modules
+from data_collector import DataCollector, GameContext
 from model_trainer import EnhancedModelTrainer
 
 @dataclass

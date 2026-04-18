@@ -1,0 +1,14 @@
+2026-03-14 12:33:49,646 [INFO   ] train: Log file: logs\training_20260314_123349.log
+2026-03-14 12:33:49,646 [INFO   ] train: NBA Prediction Model Training Pipeline
+2026-03-14 12:33:49,646 [INFO   ] train: Started: 2026-03-14 12:33:49
+2026-03-14 12:33:49,647 [INFO   ] train: Mode: full training
+2026-03-14 12:33:49,657 [INFO   ] train: ============================================================
+2026-03-14 12:33:49,657 [INFO   ] train: STARTING MODEL TRAINING
+2026-03-14 12:33:49,657 [INFO   ] train: ============================================================
+2026-03-14 12:33:49,657 [INFO   ] train: Seasons: ('2022-23', '2023-24', '2024-25')
+2026-03-14 12:33:49,658 [INFO   ] train: Season weights: {'2022-23': 0.5, '2023-24': 0.8, '2024-25': 1.0}
+2026-03-14 12:33:49,658 [INFO   ] train: Models directory: enhanced_models
+2026-03-14 12:33:49,658 [INFO   ] model_trainer: Preparing team training data with temporal isolation...
+2026-03-14 12:34:31,643 [WARNING] data_collector: TeamGameLogs(team=1610612739, season=2022-23): attempt 1 failed (HTTPSConnectionPool(host='stats.nba.com', port=443): Read timed out. (read timeout=30)), retrying in 3.0s
+2026-03-14 12:35:04,787 [WARNING] data_collector: TeamGameLogs(team=1610612739, season=2022-23): attempt 2 failed (HTTPSConnectionPool(host='stats.nba.com', port=443): Read timed out. (read timeout=30)), retrying in 4.1s
+2026-03-14 12:35:53,660 [WARNING] data_collector: TeamGameLogs(team=1610612740, season=2022-23): attempt 1 failed (HTTPSConnectionPool(host='stats.nba.com', port=443): Read timed out. (read timeout=30)), retrying in 2.4s

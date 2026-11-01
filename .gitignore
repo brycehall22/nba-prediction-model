@@ -1,0 +1,15 @@
+__pycache__/
+*.pyc
+.env
+.venv/
+venv/
+.pytest_cache/
+
+# Local data & artifacts (rebuilt by `python cli.py backfill` / `train`)
+data/*.db
+data/*.db-wal
+data/*.db-shm
+nba_cache.db
+models/
+logs/
+*.log

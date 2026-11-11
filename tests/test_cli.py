@@ -137,7 +137,11 @@ def _insert_pred(wh, **kw):
     base = dict(created_at="2026-10-30T12:00:00Z", game_key="20261030_CHA_WAS", game_date="2026-10-30", kind="spread", side="HOME",
                 player_key=None, player_name=None, line=-3.5, price=-110, book="draftkings", model_prob=0.55, market_prob=0.5,
                 blended_prob=0.53, ev_pct=1.0, kelly=0.0, projection=None, result=None, actual=None, closing_line=None,
+<<<<<<< HEAD
                 closing_price=None, graded_at="2026-10-31T01:00:00Z", is_pick=1)
+=======
+                closing_price=None, graded_at="2026-10-31T01:00:00Z")
+>>>>>>> 70c7a466080363221144ffdb48ce1198fc17722b
     base.update(kw)
     cols = ",".join(base)
     with wh.connect() as c:
@@ -154,9 +158,15 @@ class Reporting(CliBase):
         _insert_pred(wh, kind="total", side="OVER", line=221.5, result=None, graded_at=None)           # one still pending
         code, out = run(["--db", self.db, "report"])
         self.assertEqual(code, 0)
+<<<<<<< HEAD
         for needle in ("BET PERFORMANCE REPORT", "model picks only", "Logged picks: 7", "Graded      : 6", "Pending: 1", "By market", "By side",
                        "claimed-EV bucket", "Lean check", "Closing-line value", "How much can you trust this?", "far too few", "Graded picks",
                        "ONE side"):
+=======
+        for needle in ("BET PERFORMANCE REPORT", "Logged bets : 7", "Graded      : 6", "Pending: 1", "By market", "By side",
+                       "claimed-EV bucket", "Closing-line value", "How much can you trust this?", "far too few", "Graded bets",
+                       "BOTH sides of every line"):
+>>>>>>> 70c7a466080363221144ffdb48ce1198fc17722b
             self.assertIn(needle, out, needle)
         self.assertIn("Not available yet", out)                      # no closing prices stored
 
@@ -168,7 +178,11 @@ class Reporting(CliBase):
                          actual=24.0 if win else 15.0, ev_pct=5.0, closing_line=20.5, closing_price=-110)
         code, out = run(["--db", self.db, "report", "--kind", "prop", "--all"])
         self.assertEqual(code, 0)
+<<<<<<< HEAD
         self.assertIn("market: prop", out)
+=======
+        self.assertIn("(market: prop)", out)
+>>>>>>> 70c7a466080363221144ffdb48ce1198fc17722b
         self.assertIn("A B OVER 20.5", out)
         self.assertIn("Not informative yet", out)                    # closing == shown: don't claim 'behind the close'
         self.assertNotIn("behind the close", out)

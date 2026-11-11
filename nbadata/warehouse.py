@@ -95,7 +95,10 @@ CREATE TABLE IF NOT EXISTS predictions (
     line REAL, price INTEGER, book TEXT,
     model_prob REAL, market_prob REAL, blended_prob REAL, ev_pct REAL, kelly REAL,
     projection REAL,
+<<<<<<< HEAD
     is_pick INTEGER,                    -- 1 = the side the model actually chose for this line (one per game/market/player/book)
+=======
+>>>>>>> 70c7a466080363221144ffdb48ce1198fc17722b
     result TEXT,                        -- win | loss | push | NULL (pending)
     actual REAL, closing_line REAL, closing_price INTEGER, graded_at TEXT
 );
@@ -137,6 +140,7 @@ class Warehouse:
     def init_schema(self):
         with self.connect() as c:
             c.executescript(SCHEMA)
+<<<<<<< HEAD
             cols = [r["name"] for r in c.execute("PRAGMA table_info(predictions)")]
             if "is_pick" not in cols:                     # database created by an earlier version
                 c.execute("ALTER TABLE predictions ADD COLUMN is_pick INTEGER")
@@ -162,6 +166,8 @@ class Warehouse:
         c.execute("UPDATE predictions SET is_pick = 0")
         c.executemany("UPDATE predictions SET is_pick = 1 WHERE id = ?", [(i,) for i in picks])
         return len(picks)
+=======
+>>>>>>> 70c7a466080363221144ffdb48ce1198fc17722b
 
     # ── meta ─────────────────────────────────────────────────────────────
     def set_meta(self, key: str, value) -> None:

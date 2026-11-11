@@ -43,6 +43,7 @@ def kelly_fraction(p_win: float, p_loss: float, american: float,
 
 
 def blend_win_prob(p_win: float, p_push: float, market_fair: Optional[float], weight: float) -> float:
+<<<<<<< HEAD
     """Blend the (push-conditional) model win probability toward the de-vigged market probability.
 
     When no market fair is available, still shrink toward 0.5 by PROP_NO_MARKET_SHRINK so pure-model
@@ -64,6 +65,17 @@ def value_label(ev_pct: float, kind: str = "", model_prob: float = 0.5) -> str:
     min_p = float(getattr(BETTING, "MIN_MODEL_PROB_TO_FLAG", 0.0) or 0.0)
     if kind in ("moneyline", "spread") and min_p > 0 and model_prob < min_p:
         return "none"
+=======
+    """Blend the (push-conditional) model win probability toward the de-vigged market probability."""
+    if market_fair is None or weight <= 0:
+        return p_win
+    cond = p_win / max(1.0 - p_push, 1e-9)
+    cond = (1.0 - weight) * cond + weight * market_fair
+    return cond * (1.0 - p_push)
+
+
+def value_label(ev_pct: float) -> str:
+>>>>>>> 70c7a466080363221144ffdb48ce1198fc17722b
     if ev_pct >= BETTING.HIGH_EV_THRESHOLD_PCT:
         return "high"
     if ev_pct >= BETTING.EV_THRESHOLD_PCT:
@@ -82,22 +94,30 @@ def _bet(kind: str, side: str, line: Optional[float], price: int, p_win: float, 
         "kind": kind, "side": side, "line": line, "price": int(price),
         "model_prob": p_win, "push_prob": p_push, "market_fair_prob": market_fair, "blended_prob": blended,
         "implied_prob": american_to_prob(price), "ev_pct": ev, "raw_ev_pct": raw_ev,
+<<<<<<< HEAD
         "kelly_pct": kelly_fraction(blended, p_loss, price) * 100.0,
         "label": value_label(ev, kind=kind, model_prob=p_win),
+=======
+        "kelly_pct": kelly_fraction(blended, p_loss, price) * 100.0, "label": value_label(ev),
+>>>>>>> 70c7a466080363221144ffdb48ce1198fc17722b
         "warning": None,
     }
     if market_fair is not None and abs(p_win / max(1 - p_push, 1e-9) - market_fair) > BIG_DISAGREEMENT:
         out["warning"] = ("Model and market disagree strongly; check lineups/injuries before trusting this edge.")
+<<<<<<< HEAD
     if kind in ("moneyline", "spread") and p_win < 0.42 and ev >= BETTING.EV_THRESHOLD_PCT:
         # Still +EV on paper, but we refuse to recommend it as a flagged pick (see MIN_MODEL_PROB_TO_FLAG).
         out["warning"] = (out["warning"] or "") + (
             " Model gives this side <42% — longshot value, not recommended as a primary pick. Visible with --all."
         ).strip()
+=======
+>>>>>>> 70c7a466080363221144ffdb48ce1198fc17722b
     if extra:
         out.update(extra)
     return out
 
 
+<<<<<<< HEAD
 def mark_picks(bets: List[Dict]) -> List[Dict]:
     """
     Flag exactly one side per line as the model's PICK: the side with the higher blended EV (ties: higher probability).
@@ -115,6 +135,8 @@ def mark_picks(bets: List[Dict]) -> List[Dict]:
     return bets
 
 
+=======
+>>>>>>> 70c7a466080363221144ffdb48ce1198fc17722b
 # ── games ────────────────────────────────────────────────────────────────────
 class GameEV:
     """Probabilities for spread / total / moneyline from a model margin & total with fitted sigmas."""
@@ -179,12 +201,20 @@ class GameEV:
                                  {"edge_pts": edge if side == "OVER" else -edge}))
         hml, aml = market.get("home_moneyline"), market.get("away_moneyline")
         if hml is not None and aml is not None:
+<<<<<<< HEAD
             ph = pred.get("home_win_prob")
             ph = self.win_prob(pred["margin"], ms) if ph is None else ph
             fw = fair.get("home_win")
             bets.append(_bet("moneyline", "HOME", None, int(hml), ph, 0.0, fw, w))
             bets.append(_bet("moneyline", "AWAY", None, int(aml), 1 - ph, 0.0, (1 - fw) if fw is not None else None, w))
         return mark_picks(bets)
+=======
+            ph = self.win_prob(pred["margin"], ms)
+            fw = fair.get("home_win")
+            bets.append(_bet("moneyline", "HOME", None, int(hml), ph, 0.0, fw, w))
+            bets.append(_bet("moneyline", "AWAY", None, int(aml), 1 - ph, 0.0, (1 - fw) if fw is not None else None, w))
+        return bets
+>>>>>>> 70c7a466080363221144ffdb48ce1198fc17722b
 
 
 # ── props ────────────────────────────────────────────────────────────────────
@@ -193,7 +223,14 @@ def evaluate_prop(probs: Dict[str, float], line: float, over_odds: int, under_od
     """probs = {'over','under','push'} from player_model.over_under_probs."""
     w = BETTING.PROP_MARKET_WEIGHT if weight is None else weight
     push = probs["push"]
+<<<<<<< HEAD
     return mark_picks([
         _bet("prop", "OVER", line, over_odds, probs["over"], push, fair_over, w, extra),
         _bet("prop", "UNDER", line, under_odds, probs["under"], push, (1 - fair_over) if fair_over is not None else None, w, extra),
     ])
+=======
+    return [
+        _bet("prop", "OVER", line, over_odds, probs["over"], push, fair_over, w, extra),
+        _bet("prop", "UNDER", line, under_odds, probs["under"], push, (1 - fair_over) if fair_over is not None else None, w, extra),
+    ]
+>>>>>>> 70c7a466080363221144ffdb48ce1198fc17722b

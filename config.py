@@ -89,6 +89,7 @@ class OddsConfig:
 class ModelConfig:
     MODELS_DIR: str = "models"
     TRAIN_SEASONS: int = 3
+<<<<<<< HEAD
     # Team ratings (walk-forward, time-decayed ridge).
     # Defaults match values adopted by `cli.py backtest` on holdout data
     # (half_life 50→100, ridge 25→10, carry 0.55→0.3). models/tuning.json can still override.
@@ -96,12 +97,23 @@ class ModelConfig:
     RATING_RIDGE: float = 10.0             # shrinkage of off/def ratings toward the prior
     PACE_RIDGE: float = 10.0
     PRIOR_SEASON_CARRY: float = 0.3        # fraction of last season's ratings carried over
+=======
+    # Team ratings (walk-forward, time-decayed ridge)
+    RATING_HALF_LIFE_DAYS: float = 50.0
+    RATING_RIDGE: float = 25.0             # shrinkage of off/def ratings toward the prior
+    PACE_RIDGE: float = 25.0
+    PRIOR_SEASON_CARRY: float = 0.55       # fraction of last season's ratings carried over
+>>>>>>> 70c7a466080363221144ffdb48ce1198fc17722b
     # Game-level uncertainty. These are priors; training replaces them with fitted values.
     DEFAULT_MARGIN_SIGMA: float = 12.5
     DEFAULT_TOTAL_SIGMA: float = 18.0
     MIN_TEAM_GAMES_FOR_EVAL: int = 15      # ignore early-season games when scoring accuracy
     # Players
+<<<<<<< HEAD
     PLAYER_EWM_HALFLIFE_GAMES: float = 12.0  # was 8; longer window stabilizes rates
+=======
+    PLAYER_EWM_HALFLIFE_GAMES: float = 8.0
+>>>>>>> 70c7a466080363221144ffdb48ce1198fc17722b
     MIN_PRIOR_GAMES: int = 8
     MIN_TRAIN_MINUTES: float = 8.0
     ROTATION_MIN_MINUTES: float = 12.0
@@ -113,12 +125,17 @@ class ModelConfig:
 @dataclass(frozen=True)
 class BettingConfig:
     DEFAULT_ODDS: int = -110
+<<<<<<< HEAD
     EV_THRESHOLD_PCT: float = 2.5          # flag as value above this EV% (slightly lower after heavy market blend)
+=======
+    EV_THRESHOLD_PCT: float = 3.0          # flag as value above this EV%
+>>>>>>> 70c7a466080363221144ffdb48ce1198fc17722b
     HIGH_EV_THRESHOLD_PCT: float = 8.0
     KELLY_FRACTION: float = 0.25           # quarter Kelly
     MAX_KELLY_BET_PCT: float = 5.0
     # Props & games: blend final probability toward the de-vigged market probability.
     # 0 = trust the model fully, 1 = just echo the market. Calibrate with `cli.py report`.
+<<<<<<< HEAD
     # Defaults raised after graded-pick calibration (props best weight ≈90%, games ≈70%).
     # models/tuning.json overrides these when present.
     PROP_MARKET_WEIGHT: float = 0.90
@@ -130,6 +147,10 @@ class BettingConfig:
     # When a prop has no two-way market fair probability, still shrink the model toward 50%
     # so we do not claim 30%+ EV on a pure-model number.
     PROP_NO_MARKET_SHRINK: float = 0.50
+=======
+    PROP_MARKET_WEIGHT: float = 0.50
+    GAME_MARKET_WEIGHT: float = 0.35
+>>>>>>> 70c7a466080363221144ffdb48ce1198fc17722b
 
 
 @dataclass(frozen=True)

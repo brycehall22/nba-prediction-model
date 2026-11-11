@@ -1,7 +1,10 @@
 import tempfile
 import unittest
 
+<<<<<<< HEAD
 import numpy as np
+=======
+>>>>>>> 70c7a466080363221144ffdb48ce1198fc17722b
 import pandas as pd
 
 from nbadata.teams import resolve_team
@@ -32,10 +35,13 @@ def prop(date, h, a, name, line, book="draftkings", over=-115, under=-105):
                     player_key=normalize_name(name), line=line, over_price=over, under_price=under)
 
 
+<<<<<<< HEAD
 def res_players_with_props(res):
     return len({b["player_key"] for b in res["prop_bets"]})
 
 
+=======
+>>>>>>> 70c7a466080363221144ffdb48ce1198fc17722b
 class EndToEnd(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -101,11 +107,14 @@ class EndToEnd(unittest.TestCase):
         n = self.eng.log.log(res["game_bets"] + res["prop_bets"], res["game_key"], day, "draftkings")
         self.assertGreater(n, 6)
         self.assertEqual(self.eng.log.log(res["game_bets"] + res["prop_bets"], res["game_key"], day, "draftkings"), 0)   # dedupe
+<<<<<<< HEAD
         picks = self.wh.query_df("SELECT kind, IFNULL(player_key,'') pk, COUNT(*) n FROM predictions WHERE game_key=? AND is_pick=1 GROUP BY kind, pk",
                                  [row["game_key"]])
         self.assertTrue((picks["n"] == 1).all())                               # exactly one pick per spread/total/moneyline/player line
         self.assertTrue({"spread", "total", "moneyline", "prop"} <= set(picks["kind"]))
         self.assertEqual(int((picks["kind"] == "prop").sum()), int(res_players_with_props(res)))
+=======
+>>>>>>> 70c7a466080363221144ffdb48ce1198fc17722b
         graded = self.eng.log.grade()
         self.assertEqual(graded, n)
         preds = self.wh.query_df("SELECT * FROM predictions WHERE game_key=?", [row["game_key"]])
@@ -123,6 +132,7 @@ class EndToEnd(unittest.TestCase):
         rep = self.eng.log.report()
         self.assertEqual(rep["n"], n)
         self.assertIn("prop", rep["by_kind"])
+<<<<<<< HEAD
         pr = self.eng.log.detailed_report()                                    # default view = picks only
         self.assertEqual(pr["overall"]["bets"], len(picks))
         self.assertEqual(self.eng.log.detailed_report(picks_only=False)["overall"]["bets"], n)
@@ -144,6 +154,8 @@ class EndToEnd(unittest.TestCase):
                             if b["kind"] == kind and b["market_fair_prob"] is not None])
         for kind in ("prop", "spread", "total"):
             self.assertLess(gap(tuned, kind), gap(base, kind), kind)           # more market weight -> closer to the market's price
+=======
+>>>>>>> 70c7a466080363221144ffdb48ce1198fc17722b
 
     def test_preseason_games_are_excluded_from_modelling(self):
         wh = Warehouse(":memory:")

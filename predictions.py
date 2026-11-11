@@ -31,7 +31,10 @@ class PredictionLog:
         """Insert bets once per (game, kind, side, player, line, book): the first logged price is the 'shown' price."""
         n = 0
         created = iso_utc(now_utc())
+<<<<<<< HEAD
         group_has_pick: Dict[tuple, bool] = {}
+=======
+>>>>>>> 70c7a466080363221144ffdb48ce1198fc17722b
         with self.wh.connect() as c:
             for b in bets:
                 if min_ev is not None and b["ev_pct"] < min_ev:
@@ -44,6 +47,7 @@ class PredictionLog:
                     (game_key, b["kind"], b["side"], pk or "", b["line"] if b["line"] is not None else -999, bk)).fetchone()
                 if exists:
                     continue
+<<<<<<< HEAD
                 # One pick per (game, market, player, book): the first batch's chosen side. Later re-evaluations at moved
                 # lines are still stored (for closing-line value) but are not counted as new bets.
                 gk = (game_key, b["kind"], pk or "", bk)
@@ -61,6 +65,15 @@ class PredictionLog:
                     (created, game_key, game_date, b["kind"], b["side"], pk, b.get("player"), b["line"], b["price"], bk,
                      b["model_prob"], b.get("market_fair_prob"), b["blended_prob"], b["ev_pct"], b["kelly_pct"],
                      b.get("projection"), is_pick))
+=======
+                c.execute(
+                    """INSERT INTO predictions(created_at, game_key, game_date, kind, side, player_key, player_name, line, price,
+                           book, model_prob, market_prob, blended_prob, ev_pct, kelly, projection)
+                       VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    (created, game_key, game_date, b["kind"], b["side"], pk, b.get("player"), b["line"], b["price"], bk,
+                     b["model_prob"], b.get("market_fair_prob"), b["blended_prob"], b["ev_pct"], b["kelly_pct"],
+                     b.get("projection")))
+>>>>>>> 70c7a466080363221144ffdb48ce1198fc17722b
                 n += 1
         return n
 
@@ -236,6 +249,7 @@ class PredictionLog:
             out["line_beat_pct"] = float(100 * fav.mean())
         return out
 
+<<<<<<< HEAD
     @staticmethod
     def _logloss_blend(df: pd.DataFrame, w: float) -> float:
         y = (df["result"] == "win").astype(float).values
@@ -297,6 +311,20 @@ class PredictionLog:
         df = allp[allp["result"].isin(["win", "loss", "push"])].copy()
         out["graded"] = int(len(df))
         out["lean"] = self.lean(since, kind)
+=======
+    def detailed_report(self, min_ev: float = None, since: Optional[str] = None, kind: Optional[str] = None) -> Dict:
+        min_ev = BETTING.EV_THRESHOLD_PCT if min_ev is None else min_ev
+        allp = self.wh.query_df("SELECT * FROM predictions")
+        if since:
+            allp = allp[allp["game_date"] >= since]
+        if kind:
+            allp = allp[allp["kind"] == kind]
+        out: Dict = {"logged": int(len(allp)), "graded": 0, "pending": int(allp["result"].isna().sum()),
+                     "void": int((allp["result"] == "void").sum()), "min_ev": min_ev, "since": since, "kind": kind,
+                     "first_game": allp["game_date"].min() if len(allp) else None, "last_game": allp["game_date"].max() if len(allp) else None}
+        df = allp[allp["result"].isin(["win", "loss", "push"])].copy()
+        out["graded"] = int(len(df))
+>>>>>>> 70c7a466080363221144ffdb48ce1198fc17722b
         if df.empty:
             return out
         df["units"] = df.apply(self._units, axis=1)
@@ -311,6 +339,7 @@ class PredictionLog:
         if len(flagged):
             out["flagged"] = self._summ(flagged)
             out["flagged"].update(self._clv(flagged))
+<<<<<<< HEAD
         cal = df[df["result"] != "push"].dropna(subset=["market_prob"])
         if len(cal) >= 30:
             grid = {round(w, 2): self._logloss_blend(cal, w) for w in np.linspace(0, 1, 11)}
@@ -319,6 +348,9 @@ class PredictionLog:
                                   "logloss_best": grid[best], "enough_data": bool(len(cal) >= 300)}
         picks_graded = (rows[(rows["is_pick"] == 1) & rows["result"].isin(["win", "loss", "push"])])
         out["blend_weights"] = self.fit_blend_weights(picks_graded)
+=======
+        out["calibration"] = self.report(min_ev=min_ev).get("calibration") if not kind and not since else None
+>>>>>>> 70c7a466080363221144ffdb48ce1198fc17722b
         recent = df.sort_values(["game_date", "id"], ascending=[False, False])
         out["recent"] = recent[["game_date", "game_key", "kind", "side", "player_name", "line", "price", "model_prob",
                                 "blended_prob", "ev_pct", "result", "actual", "closing_line", "closing_price"]].to_dict("records")

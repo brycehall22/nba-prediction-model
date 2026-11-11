@@ -14,11 +14,17 @@ import pandas as pd
 from config import BETTING, MODEL, PREDICTION
 from ev_engine import GameEV, evaluate_prop
 from modeling.frames import build_team_games, games_frame
+<<<<<<< HEAD
 from modeling.backtest import fit_models
 from modeling.game_model import GameModel
 from modeling.player_model import PlayerModel, build_inference_frame, build_training_frame
 from modeling.ratings import RatingEngine
 from modeling.tuning import Tuning
+=======
+from modeling.game_model import GameModel
+from modeling.player_model import PlayerModel, build_inference_frame, build_training_frame
+from modeling.ratings import RatingEngine
+>>>>>>> 70c7a466080363221144ffdb48ce1198fc17722b
 from nbadata.players import match_player
 from nbadata.teams import TEAMS_BY_ID, resolve_team, team_abbr, team_name
 from nbadata.timeutil import today_eastern
@@ -41,14 +47,21 @@ class Engine:
         self.models_dir = models_dir or MODEL.MODELS_DIR
         self.game_model: Optional[GameModel] = GameModel.load(self.models_dir)
         self.player_model: Optional[PlayerModel] = PlayerModel.load(self.models_dir)
+<<<<<<< HEAD
         self.tuning: Tuning = Tuning.load(self.models_dir)          # corrections found by `cli.py backtest` (empty if none)
+=======
+>>>>>>> 70c7a466080363221144ffdb48ce1198fc17722b
         self.log = PredictionLog(self.wh)
         self._cache_key = None
         self._tg: Optional[pd.DataFrame] = None
         self._g: Optional[pd.DataFrame] = None
         self._pb: Optional[pd.DataFrame] = None
+<<<<<<< HEAD
         self._rating_engine = RatingEngine(**self.tuning.rating)
         self._state_cache: Dict = {}
+=======
+        self._rating_engine = RatingEngine()
+>>>>>>> 70c7a466080363221144ffdb48ce1198fc17722b
 
     # ── data frames (cached until the warehouse changes) ─────────────────
     def _frames(self):
@@ -73,12 +86,24 @@ class Engine:
     # ── training ─────────────────────────────────────────────────────────
     def train(self, progress=None) -> Dict:
         tg, g, pb = self._frames()
+<<<<<<< HEAD
         if progress: progress("fitting team ratings, game model and player model (walk-forward / time-ordered CV)"
                               + (f"; using tuned rating parameters {self.tuning.rating}" if self.tuning.rating else ""))
         gm, pm = fit_models(g, tg, pb, self.tuning.rating or None)
         gm.save(self.models_dir); pm.save(self.models_dir)
         self.game_model, self.player_model = gm, pm
         self._state_cache.clear()
+=======
+        if progress: progress("fitting team ratings + game model (walk-forward)")
+        gm = GameModel().fit(g)
+        wf, _, _ = self._rating_engine.walk_forward(g)
+        if progress: progress("building player features")
+        frame = build_training_frame(pb, tg, wf)
+        if progress: progress("fitting player model (time-ordered CV)")
+        pm = PlayerModel().fit(frame)
+        gm.save(self.models_dir); pm.save(self.models_dir)
+        self.game_model, self.player_model = gm, pm
+>>>>>>> 70c7a466080363221144ffdb48ce1198fc17722b
         return {"game": gm.metrics, "player": pm.metrics, "trained_through": gm.trained_through}
 
     def require_models(self):
@@ -88,11 +113,16 @@ class Engine:
     # ── status ───────────────────────────────────────────────────────────
     def status(self) -> Dict:
         c = self.wh.counts()
+<<<<<<< HEAD
         return {**c, "odds": self.odds.status(), "corrections": self.tuning.describe(),
+=======
+        return {**c, "odds": self.odds.status(),
+>>>>>>> 70c7a466080363221144ffdb48ce1198fc17722b
                 "models": {"game": self.game_model.trained_through if self.game_model else None,
                            "player": self.player_model.trained_through if self.player_model else None}}
 
     # ── predictions ──────────────────────────────────────────────────────
+<<<<<<< HEAD
     def _state_for(self, g: pd.DataFrame, gd: pd.Timestamp):
         key = (gd.value, self._cache_key, tuple(sorted(self.tuning.rating.items())))
         if key not in self._state_cache:
@@ -102,14 +132,23 @@ class Engine:
     def predict_game(self, home_id: int, away_id: int, game_date=None, with_props: bool = True,
                      game_weight: Optional[float] = None, prop_weight: Optional[float] = None,
                      injuries: Optional[pd.DataFrame] = None) -> Dict:
+=======
+    def predict_game(self, home_id: int, away_id: int, game_date=None, with_props: bool = True,
+                     game_weight: Optional[float] = None, prop_weight: Optional[float] = None) -> Dict:
+>>>>>>> 70c7a466080363221144ffdb48ce1198fc17722b
         self.require_models()
         tg, g, pb = self._frames()
         gd = pd.Timestamp(game_date or today_eastern())
         # Ratings are refreshed from all games played so far (cheap); the residual model & sigmas come from training.
+<<<<<<< HEAD
         state = self._state_for(g, gd)
         game_weight = game_weight if game_weight is not None else self.tuning.game_market_weight
         prop_weight = prop_weight if prop_weight is not None else self.tuning.prop_market_weight
         pred = self.tuning.apply_game(self.game_model.predict(home_id, away_id, tg, gd, state=state))
+=======
+        state = self._rating_engine.fit_asof(g, asof=gd)
+        pred = self.game_model.predict(home_id, away_id, tg, gd, state=state)
+>>>>>>> 70c7a466080363221144ffdb48ce1198fc17722b
         ds = gd.date().isoformat()
         market = self.odds.get_game_market(home_id, away_id, ds)
         if not market.get("available"):
@@ -119,12 +158,20 @@ class Engine:
                "home": team_name(home_id), "away": team_name(away_id), "pred": pred, "market": market, "game_bets": bets,
                "home_players": [], "away_players": [], "prop_bets": []}
         if with_props:
+<<<<<<< HEAD
             self._add_players(out, tg, pb, pred, market, gd, prop_weight, injuries)
         return out
 
     def _add_players(self, out: Dict, tg, pb, pred, market, gd, prop_weight: Optional[float] = None,
                      injuries: Optional[pd.DataFrame] = None):
         inj = injuries if injuries is not None else self.wh.injuries_df()
+=======
+            self._add_players(out, tg, pb, pred, market, gd, prop_weight)
+        return out
+
+    def _add_players(self, out: Dict, tg, pb, pred, market, gd, prop_weight: Optional[float] = None):
+        inj = self.wh.injuries_df()
+>>>>>>> 70c7a466080363221144ffdb48ce1198fc17722b
         # Game script: blend our expected team points with the market-implied ones when a line exists.
         hp, ap, poss = pred["home_pts"], pred["away_pts"], pred["poss"]
         if market.get("available") and market.get("home_spread") is not None and market.get("total") is not None:
@@ -141,9 +188,13 @@ class Engine:
             live = ~feats["out"]
             raw_sum = feats.loc[live, "proj_pts"].sum()
             scale = float(np.clip(mine / raw_sum, PREDICTION.MIN_PLAYER_SCALE, PREDICTION.MAX_PLAYER_SCALE)) if raw_sum > 0 else 1.0
+<<<<<<< HEAD
             # Scale to team total, then apply the learned player-points bias (model was systematically low).
             bias = float(getattr(self.tuning, "pts_bias", 0.0) or 0.0)
             feats["proj_pts_adj"] = np.where(live, np.maximum(0.0, feats["proj_pts"] * scale + bias), 0.0)
+=======
+            feats["proj_pts_adj"] = np.where(live, feats["proj_pts"] * scale, 0.0)
+>>>>>>> 70c7a466080363221144ffdb48ce1198fc17722b
             feats = feats.sort_values("proj_min", ascending=False)
             rosters[side] = feats
             rows = []
@@ -169,11 +220,18 @@ class Engine:
             row = feats.loc[m]
             if bool(row["out"]):
                 continue
+<<<<<<< HEAD
             # Bias is already baked into proj_pts_adj above.
             mu = float(row["proj_pts_adj"])
             if mu <= 0:
                 continue
             probs = self.tuning.apply_prop(self.player_model.prop_probs(mu, p["line"]))
+=======
+            mu = float(row["proj_pts_adj"])
+            if mu <= 0:
+                continue
+            probs = self.player_model.prop_probs(mu, p["line"])
+>>>>>>> 70c7a466080363221144ffdb48ce1198fc17722b
             extra = {"player": p["player"], "player_key": m, "projection": mu, "proj_min": float(row["proj_min"]),
                      "team": team_abbr(out["home_id"] if side == "home" else out["away_id"]), "book": p["book"],
                      "n_books": p["n_books"], "consensus_line": p["consensus_line"], "status": row["status"],

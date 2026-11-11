@@ -16,7 +16,11 @@ python cli.py slate               :: today's projections and flagged bets
 You can also run the steps yourself: `doctor` -> `backfill` -> `train` -> `odds` -> `slate`.
 `python cli.py status` always ends with the next step to run.
 
+<<<<<<< HEAD
 Daily routine: `update` -> `odds` -> `slate`. After games finish: `update` -> `grade` -> `report`. Now and then: `backtest`.
+=======
+Daily routine: `update` -> `odds` -> `slate`. After games finish: `update` -> `grade` -> `report`.
+>>>>>>> 70c7a466080363221144ffdb48ce1198fc17722b
 Single matchup: `python cli.py predict BOS LAL --date 2026-11-02 --all`.
 
 ## Reading the output
@@ -31,6 +35,7 @@ python cli.py report --since 2026-11-01 --all
 
 | Section | What it tells you |
 |---|---|
+<<<<<<< HEAD
 | Logged / Graded / Pending / Voided | How many picks exist, how many have results, how many are waiting for games (run `update`, then `grade`). |
 | Overall | **One pick per line**: the side the model liked better when it logged the line. A coin-flip model wins about 50% and loses roughly the sportsbook's margin (about -4% to -5% ROI at -110). `--both-sides` shows the old view where both sides are counted; there wins and losses cancel by construction. |
 | Flagged picks | The picks the program would actually recommend (claimed EV above the threshold). This row measures the strategy. |
@@ -70,6 +75,19 @@ It assumes the injury report matched who actually sat out (optimistic), and one 
 
 ## Troubleshooting
 
+=======
+| Logged / Graded / Pending / Voided | How many bets exist, how many have results, how many are waiting for games (run `update`, then `grade`). |
+| Overall | Includes **both sides of every line**, so it runs slightly negative (about the sportsbook's margin) even for a break-even model. |
+| Flagged value bets | The bets the program would actually recommend (claimed EV above the threshold). This row measures the strategy. |
+| By market / side / claimed-EV bucket | Whether one market or direction is carrying results, and whether higher claimed EV really does better. |
+| expected win% vs win% | The model's own average probability against what happened. A big gap means the probabilities are miscalibrated. |
+| Closing-line value | Whether the price/line moved toward your side after you bet. Needs a later `odds` pull before tip-off. |
+| How much can you trust this? | The 95% range for true ROI at your sample size and roughly how many bets are needed. Under ~300 bets, ROI is mostly luck. |
+| Calibration | Whether the model beats the market's own price, and the suggested blend weight. |
+
+## Troubleshooting
+
+>>>>>>> 70c7a466080363221144ffdb48ce1198fc17722b
 | You see | Meaning / fix |
 |---|---|
 | `nba_cdn ... HTTP 403 Access Denied` | NBA.com's CDN blocked the request (bot protection, VPN, or network filter). Not fatal: ESPN is the primary source. If `doctor` says "usable via espn", carry on. |
@@ -116,7 +134,11 @@ It assumes the injury report matched who actually sat out (optimistic), and one 
 
 ## What is and isn't verified
 
+<<<<<<< HEAD
 * `python -m unittest discover -s tests` runs 100+ tests (parsers, ingestion fallback, ratings recovery of known truth,
+=======
+* `python -m unittest discover -s tests` runs 60+ tests (parsers, ingestion fallback, ratings recovery of known truth,
+>>>>>>> 70c7a466080363221144ffdb48ce1198fc17722b
   no-lookahead checks, EV math, end-to-end predict -> log -> grade, CLI empty-state behaviour). They use a synthetic league and hand-built
   API payloads that mirror the documented response shapes.
 * **The live endpoints (ESPN, NBA CDN, The Odds API) were not reachable from the environment this was built in**, so the parsers have

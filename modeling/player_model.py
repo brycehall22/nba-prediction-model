@@ -14,7 +14,10 @@ Player points model (props).
 
 from __future__ import annotations
 
+<<<<<<< HEAD
 import copy
+=======
+>>>>>>> 70c7a466080363221144ffdb48ce1198fc17722b
 import logging
 import os
 from collections import deque
@@ -39,14 +42,18 @@ FEATURES = [
     "starter_rate10", "n_prior", "is_home", "rest", "b2b",
     "team_pts_hat", "opp_pts_hat", "poss_hat", "abs_margin_hat", "team_margin_hat",
     "miss_share", "top_missing",
+<<<<<<< HEAD
     # Interaction / usage features: help the model raise projections when rotation minutes free up
     # and when a player's recent rate is high relative to team script.
     "miss_boost", "rate_x_team", "fga_rate", "pts_vs_season",
+=======
+>>>>>>> 70c7a466080363221144ffdb48ce1198fc17722b
 ]
 BASE_COLS = ["pts", "minutes", "fga", "fta", "fg3a", "tov"]
 OUT_STATUSES = ("out", "doubtful")
 
 
+<<<<<<< HEAD
 def add_derived_features(df: pd.DataFrame) -> pd.DataFrame:
     """Engineered features that depend on rolling stats + game script. Safe for train and inference."""
     out = df.copy()
@@ -64,6 +71,8 @@ def add_derived_features(df: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
+=======
+>>>>>>> 70c7a466080363221144ffdb48ce1198fc17722b
 # ── rolling features (single code path for training + inference) ─────────────
 def compute_player_features(rows: pd.DataFrame) -> pd.DataFrame:
     """
@@ -149,7 +158,10 @@ def build_training_frame(player_box: pd.DataFrame, tg: pd.DataFrame, game_preds:
     miss = historical_missing(pb)
     feats = feats.merge(miss, on=["game_key", "team_id"], how="left")
     feats[["miss_share", "top_missing"]] = feats[["miss_share", "top_missing"]].fillna(0.0)
+<<<<<<< HEAD
     feats = add_derived_features(feats)
+=======
+>>>>>>> 70c7a466080363221144ffdb48ce1198fc17722b
     return feats.sort_values(["game_date", "game_key"]).reset_index(drop=True)
 
 
@@ -205,7 +217,10 @@ def build_inference_frame(player_box: pd.DataFrame, tg: pd.DataFrame, team_id: i
         is_home=1.0 if is_home else 0.0, rest=ctx["rest"], b2b=ctx["b2b"], team_pts_hat=team_pts_hat,
         opp_pts_hat=opp_pts_hat, poss_hat=poss_hat, team_margin_hat=margin_hat, abs_margin_hat=abs(margin_hat),
         miss_share=miss["miss_share"], top_missing=miss["top_missing"], team_id=team_id, opp_id=opp_id)
+<<<<<<< HEAD
     feats = add_derived_features(feats)
+=======
+>>>>>>> 70c7a466080363221144ffdb48ce1198fc17722b
     names = pb.drop_duplicates("player_key", keep="last").set_index("player_key")["player_name"]
     feats["player_name"] = feats["player_key"].map(names).fillna(feats["player_key"].str.title())
     feats["status"] = feats["player_key"].map(status).fillna("")
@@ -245,6 +260,7 @@ def over_under_probs(mu: float, line: float, r: float) -> Dict[str, float]:
 
 # ── model ────────────────────────────────────────────────────────────────────
 def _hgb(loss: str) -> HistGradientBoostingRegressor:
+<<<<<<< HEAD
     # Slightly less aggressive regularization than the original (leaf 15 / min 60 / l2 2.0),
     # which was shrinking high scorers toward the mean and driving the systematic UNDER lean.
     return HistGradientBoostingRegressor(
@@ -266,6 +282,11 @@ def _fit_affine(y: np.ndarray, pred: np.ndarray) -> tuple:
     a = float(np.clip(a, 0.85, 1.25))
     b = float(np.mean(t) - a * np.mean(x))
     return a, b
+=======
+    return HistGradientBoostingRegressor(
+        loss=loss, learning_rate=0.05, max_iter=250, max_leaf_nodes=15, min_samples_leaf=60,
+        l2_regularization=2.0, early_stopping=False, random_state=MODEL.RANDOM_STATE)
+>>>>>>> 70c7a466080363221144ffdb48ce1198fc17722b
 
 
 @dataclass
@@ -273,6 +294,7 @@ class PlayerModel:
     pts_model: Optional[object] = None
     min_model: Optional[object] = None
     nb_r: float = PROPS.DEFAULT_NB_R
+<<<<<<< HEAD
     # Affine residual calibration: actual ≈ pts_cal_a * raw_pred + pts_cal_b (fit on OOF).
     pts_cal_a: float = 1.0
     pts_cal_b: float = 0.0
@@ -282,16 +304,23 @@ class PlayerModel:
     metrics: Dict = field(default_factory=dict)
     trained_through: Optional[str] = None
     oof: Optional[pd.DataFrame] = None        # out-of-fold predictions per player-game (backtest only; not saved)
+=======
+    metrics: Dict = field(default_factory=dict)
+    trained_through: Optional[str] = None
+>>>>>>> 70c7a466080363221144ffdb48ce1198fc17722b
 
     def fit(self, frame: pd.DataFrame) -> "PlayerModel":
         df = frame[training_mask(frame)].sort_values(["game_date", "game_key"]).reset_index(drop=True)
         if len(df) < 500:
             raise ValueError(f"Only {len(df)} usable player-games; run `python cli.py backfill` first (need ~500+).")
+<<<<<<< HEAD
         # Ensure derived features exist even if caller built the frame with an older code path.
         for c in FEATURES:
             if c not in df.columns:
                 df = add_derived_features(df)
                 break
+=======
+>>>>>>> 70c7a466080363221144ffdb48ce1198fc17722b
         X, y, ym = df[FEATURES], df["pts"].values.astype(float), df["minutes"].values.astype(float)
 
         oof = np.full(len(df), np.nan); oof_min = np.full(len(df), np.nan)
@@ -299,6 +328,7 @@ class PlayerModel:
             oof[te] = _hgb("poisson").fit(X.iloc[tr], y[tr]).predict(X.iloc[te])
             oof_min[te] = _hgb("squared_error").fit(X.iloc[tr], ym[tr]).predict(X.iloc[te])
         ev = ~np.isnan(oof)
+<<<<<<< HEAD
 
         # ── residual calibration (model-side accuracy, not market blend) ──
         # Affine map stretches under-shrunk high scorers; tier bias corrects role-level offset.
@@ -324,6 +354,11 @@ class PlayerModel:
 
         r = fit_dispersion(y[ev], oof_final[ev])
         d = _nb_dist(oof_final[ev], r)
+=======
+        r = fit_dispersion(y[ev], oof[ev])
+
+        d = _nb_dist(oof[ev], r)
+>>>>>>> 70c7a466080363221144ffdb48ce1198fc17722b
         lo, hi = d.ppf(0.10), d.ppf(0.90)
         cover80 = float(np.mean((y[ev] >= lo) & (y[ev] <= hi)))
         base_ewm = df.loc[ev, "ewm_pts"].values
@@ -332,6 +367,7 @@ class PlayerModel:
         for name, lo_m, hi_m in (("bench(<20 exp min)", 0, 20), ("rotation(20-30)", 20, 30), ("stars(30+)", 30, 99)):
             mk = (df.loc[ev, "ewm_minutes"].values >= lo_m) & (df.loc[ev, "ewm_minutes"].values < hi_m)
             if mk.sum() > 50:
+<<<<<<< HEAD
                 tiers[name] = {"n": int(mk.sum()), "mae": float(np.abs(y[ev][mk] - oof_final[ev][mk]).mean()),
                                "mae_ewma": float(np.abs(y[ev][mk] - base_ewm[mk]).mean()),
                                "bias": float(np.mean(oof_final[ev][mk] - y[ev][mk]))}
@@ -344,17 +380,31 @@ class PlayerModel:
             "pts_bias": float(np.mean(oof_final[ev] - y[ev])),
             "pts_bias_raw": float(np.mean(oof[ev] - y[ev])),
             "pts_cal": {"a": a, "b": b, "tier_bias": dict(tier_bias)},
+=======
+                tiers[name] = {"n": int(mk.sum()), "mae": float(np.abs(y[ev][mk] - oof[ev][mk]).mean()),
+                               "mae_ewma": float(np.abs(y[ev][mk] - base_ewm[mk]).mean())}
+        self.metrics = {
+            "n_rows": int(len(df)), "n_scored": int(ev.sum()),
+            "pts_mae": float(np.abs(y[ev] - oof[ev]).mean()),
+            "pts_mae_ewma_baseline": float(np.nanmean(np.abs(y[ev] - base_ewm))),
+            "pts_mae_season_avg_baseline": float(np.nanmean(np.abs(y[ev] - base_season))),
+            "pts_bias": float(np.mean(oof[ev] - y[ev])),
+>>>>>>> 70c7a466080363221144ffdb48ce1198fc17722b
             "minutes_mae": float(np.abs(ym[ev] - oof_min[ev]).mean()),
             "nb_r": r, "coverage_80": cover80, "by_tier": tiers,
         }
         self.nb_r = r
+<<<<<<< HEAD
         self.oof = df.loc[ev, ["game_key", "game_date", "team_id", "player_key", "pts", "minutes", "ewm_pts", "ewm_minutes", "miss_share"]].assign(
             pred=oof_final[ev], pred_raw=oof[ev], pred_min=oof_min[ev]).reset_index(drop=True)
+=======
+>>>>>>> 70c7a466080363221144ffdb48ce1198fc17722b
         self.pts_model = _hgb("poisson").fit(X, y)
         self.min_model = _hgb("squared_error").fit(X, ym)
         self.trained_through = str(df["game_date"].max().date())
         return self
 
+<<<<<<< HEAD
     def _calibrate_pts(self, raw: np.ndarray, ewm_minutes: Optional[np.ndarray] = None) -> np.ndarray:
         """Apply affine + tier residual calibration learned on OOF predictions."""
         a = float(getattr(self, "pts_cal_a", 1.0) or 1.0)
@@ -381,6 +431,12 @@ class PlayerModel:
         ewm_min = feats["ewm_minutes"].values if "ewm_minutes" in feats.columns else None
         out["proj_pts"] = self._calibrate_pts(raw, ewm_min)
         out["proj_pts_raw"] = raw
+=======
+    def predict_frame(self, feats: pd.DataFrame) -> pd.DataFrame:
+        X = feats[FEATURES]
+        out = feats[["player_key"]].copy()
+        out["proj_pts"] = self.pts_model.predict(X)
+>>>>>>> 70c7a466080363221144ffdb48ce1198fc17722b
         out["proj_min"] = np.clip(self.min_model.predict(X), 0, 48)
         return out
 
@@ -391,9 +447,13 @@ class PlayerModel:
         directory = directory or MODEL.MODELS_DIR
         os.makedirs(directory, exist_ok=True)
         path = os.path.join(directory, "player_model.joblib")
+<<<<<<< HEAD
         slim = copy.copy(self)
         slim.oof = None
         joblib.dump(slim, path)
+=======
+        joblib.dump(self, path)
+>>>>>>> 70c7a466080363221144ffdb48ce1198fc17722b
         return path
 
     @staticmethod
@@ -402,6 +462,7 @@ class PlayerModel:
         if not os.path.exists(path):
             return None
         try:
+<<<<<<< HEAD
             m = joblib.load(path)
             # Older joblibs lack calibration fields — default to identity.
             if not hasattr(m, "pts_cal_a"):
@@ -409,6 +470,9 @@ class PlayerModel:
             if not hasattr(m, "tier_bias"):
                 m.tier_bias = {}
             return m
+=======
+            return joblib.load(path)
+>>>>>>> 70c7a466080363221144ffdb48ce1198fc17722b
         except Exception as e:
             logger.warning("Could not load %s (%s); retrain with `python cli.py train`.", path, e)
             return None

@@ -11,7 +11,10 @@ Game model: predicts home margin and total.
 
 from __future__ import annotations
 
+<<<<<<< HEAD
 import copy
+=======
+>>>>>>> 70c7a466080363221144ffdb48ce1198fc17722b
 import logging
 import os
 from dataclasses import dataclass, field
@@ -60,8 +63,11 @@ class GameModel:
     total_sigma: float = MODEL.DEFAULT_TOTAL_SIGMA
     metrics: Dict = field(default_factory=dict)
     trained_through: Optional[str] = None
+<<<<<<< HEAD
     oof: Optional[pd.DataFrame] = None        # out-of-sample predictions per game (used by the backtest; not saved)
     last_wf: Optional[pd.DataFrame] = None    # walk-forward ratings frame from the last fit (not saved)
+=======
+>>>>>>> 70c7a466080363221144ffdb48ce1198fc17722b
 
     # ── training / evaluation ────────────────────────────────────────────
     def fit(self, g: pd.DataFrame, engine: Optional[RatingEngine] = None) -> "GameModel":
@@ -123,11 +129,14 @@ class GameModel:
         p0 = home_win.mean() if len(home_win) else 0.5
         ll0 = float(-np.mean(np.where(home_win, np.log(p0), np.log(1 - p0)))) if len(home_win) else float("nan")
 
+<<<<<<< HEAD
         self.oof = pd.DataFrame({
             "game_key": wf["game_key"].values, "game_date": wf["game_date"].values, "season": wf["season"].values,
             "margin": wf["margin"].values, "total": wf["total"].values, "pred_margin": pred_m, "pred_total": pred_t,
             "naive_margin": naive_m, "naive_total": naive_t, "scored": ev})
         self.last_wf = wf
+=======
+>>>>>>> 70c7a466080363221144ffdb48ce1198fc17722b
         self.state = final_state
         self.resid_margin, self.resid_total = final_res_m, final_res_t
         self.margin_sigma, self.total_sigma = sig_m, sig_t
@@ -195,9 +204,13 @@ class GameModel:
         directory = directory or MODEL.MODELS_DIR
         os.makedirs(directory, exist_ok=True)
         path = os.path.join(directory, "game_model.joblib")
+<<<<<<< HEAD
         slim = copy.copy(self)
         slim.oof, slim.last_wf = None, None
         joblib.dump(slim, path)
+=======
+        joblib.dump(self, path)
+>>>>>>> 70c7a466080363221144ffdb48ce1198fc17722b
         return path
 
     @staticmethod

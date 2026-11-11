@@ -10,10 +10,15 @@ NBA prediction model command line.
   python cli.py train                  fit team + player models and print validation tables
   python cli.py slate [--date D]       today's games: projections, market, best bets
   python cli.py predict HOME AWAY      one matchup (team names or abbreviations)
+<<<<<<< HEAD
   python cli.py backtest               replay history as if live, find corrections, keep only the ones verified on later games
   python cli.py backtest --week        replay one week day by day: baseline model vs corrected model (--ending DATE)
   python cli.py grade                  grade logged bets against final box scores
   python cli.py report [--kind K] [--since D] [--all] [--apply-weights]   picks' ROI, lean, calibration, closing-line value
+=======
+  python cli.py grade                  grade logged bets against final box scores
+  python cli.py report [--kind K] [--since D] [--all]   ROI, calibration, closing-line value, bet list
+>>>>>>> 70c7a466080363221144ffdb48ce1198fc17722b
   python cli.py status                 what's in the warehouse
 """
 
@@ -342,6 +347,7 @@ def _print_game(res, top: int, show_all: bool):
     if pick or pickp:
         print(f"  {'bet':41} {'odds':>6} {'EV%':>7} {'p(win)':>7} {'model':>6} {'kelly%':>7}")
     for b in pick:
+<<<<<<< HEAD
         print(f"  * {_bet_line(b):39} {b['price']:>+6d} {b['ev_pct']:>+7.1f} {100 * b['blended_prob']:>6.1f}% {100 * b['model_prob']:>5.1f}% {b['kelly_pct']:>7.1f}" + ("  PICK" if b.get("is_pick") and show_all else "") + ("  !" if b["warning"] else ""))
         shown = True
     for b in pickp:
@@ -350,6 +356,16 @@ def _print_game(res, top: int, show_all: bool):
         shown = True
     if not shown and m.get("available"):
         print(f"  No picks at or above {BETTING.EV_THRESHOLD_PCT:g}% EV for this game (use --all to see both sides of every line; PICK marks the model's choice).")
+=======
+        print(f"  * {_bet_line(b):39} {b['price']:>+6d} {b['ev_pct']:>+7.1f} {100 * b['blended_prob']:>6.1f}% {100 * b['model_prob']:>5.1f}% {b['kelly_pct']:>7.1f}" + ("  !" if b["warning"] else ""))
+        shown = True
+    for b in pickp:
+        print(f"  * {_bet_line(b):39} {b['price']:>+6d} {b['ev_pct']:>+7.1f} {100 * b['blended_prob']:>6.1f}% {100 * b['model_prob']:>5.1f}% {b['kelly_pct']:>7.1f}  proj {b['projection']:.1f} in {b['proj_min']:.0f}m"
+              + ("  !" if b["warning"] else ""))
+        shown = True
+    if not shown and m.get("available"):
+        print(f"  No bets at or above {BETTING.EV_THRESHOLD_PCT:g}% EV for this game (use --all to see every evaluated bet).")
+>>>>>>> 70c7a466080363221144ffdb48ce1198fc17722b
 
 
 def cmd_slate(args) -> int:
@@ -378,11 +394,19 @@ def cmd_slate(args) -> int:
     with_mkt = [r for r in ok if r["market"].get("available")]
     n_game_bets = sum(len(r["game_bets"]) for r in ok)
     n_props = sum(len(r["prop_bets"]) for r in ok) // 2
+<<<<<<< HEAD
     flagged = sum(1 for r in ok for b in r["game_bets"] + r["prop_bets"] if b["label"] != "none" and b.get("is_pick"))
     print(f"SLATE for {d}: {len(results)} games, {len(with_mkt)} with market lines. Evaluated {n_game_bets // 2} game lines and {n_props} player-prop lines; "
           f"{flagged} picks clear the {BETTING.EV_THRESHOLD_PCT:g}% EV bar.")
     if not args.no_log:
         print("(For every line the model takes one side, its PICK, and logs it at the price shown, so `grade` and `report` can measure how it really does.)")
+=======
+    flagged = sum(1 for r in ok for b in r["game_bets"] + r["prop_bets"] if b["label"] != "none")
+    print(f"SLATE for {d}: {len(results)} games, {len(with_mkt)} with market lines. Evaluated {n_game_bets} game bets and {n_props} player-prop lines; "
+          f"{flagged} bet sides clear the {BETTING.EV_THRESHOLD_PCT:g}% EV bar.")
+    if not args.no_log:
+        print("(Every evaluated bet is logged at the price shown, so `grade` and `report` can measure how the model really does.)")
+>>>>>>> 70c7a466080363221144ffdb48ce1198fc17722b
     for r in results:
         _print_game(r, args.top, args.all)
     section("Legend")
@@ -391,8 +415,11 @@ def cmd_slate(args) -> int:
     print("  p(win)  blended win probability used for EV;  model = the model's own probability before blending")
     print(f"  kelly%  suggested stake as % of bankroll ({BETTING.KELLY_FRACTION:g}x Kelly, capped at {BETTING.MAX_KELLY_BET_PCT:g}%): an upper bound, not advice")
     print("  !       model and market disagree strongly. This usually means the book knows something (injury, lineup); check before trusting it")
+<<<<<<< HEAD
     print(f"  Note    moneyline/spread sides the model itself gives <{BETTING.MIN_MODEL_PROB_TO_FLAG:.0%} are never flagged,")
     print("          even if EV is positive (stops longshot dog bets the model still thinks will lose). Use --all to see them.")
+=======
+>>>>>>> 70c7a466080363221144ffdb48ce1198fc17722b
     return 0
 
 
@@ -442,6 +469,7 @@ def cmd_grade(args) -> int:
 
 def cmd_report(args) -> int:
     from predictions import PredictionLog
+<<<<<<< HEAD
     from modeling.tuning import Tuning
     from config import MODEL
     log = PredictionLog(Warehouse(args.db))
@@ -466,6 +494,19 @@ def cmd_report(args) -> int:
     else:
         print("  How to read: this view counts BOTH sides of every line, so wins and losses cancel to ~50% by construction. Use it only for comparison;")
         print("  the default view (picks only) is the one that measures the model. ROI = units won / bets placed.")
+=======
+    log = PredictionLog(Warehouse(args.db))
+    rep = log.detailed_report(min_ev=args.min_ev, since=args.since, kind=args.kind)
+    print("=" * W)
+    print("BET PERFORMANCE REPORT" + (f"   (market: {args.kind})" if args.kind else "") + (f"   (games since {args.since})" if args.since else ""))
+    print("=" * W)
+    if rep["logged"] == 0:
+        print("No bets are logged yet. Run `python cli.py slate` on a game day (it logs every bet it evaluates), then `update`, `grade`, `report`.")
+        return 0
+    print(f"  Logged bets : {rep['logged']}   covering games {rep['first_game']} .. {rep['last_game']}")
+    print(f"  Graded      : {rep['graded']}      Pending: {rep['pending']} (game not played yet or not loaded: run `update`, then `grade`)      Voided: {rep['void']}")
+    print("  How to read: each bet is staked at 1 unit at the price shown when first logged. ROI = units won / bets placed.")
+>>>>>>> 70c7a466080363221144ffdb48ce1198fc17722b
     print("  'claimed EV' is what the model promised when it logged the bet; ROI is what actually happened. 'expected win%' is the model's average probability.")
     if rep["graded"] == 0:
         print("\nNothing graded yet. Run `python cli.py update` then `python cli.py grade` after the games finish.")
@@ -477,6 +518,7 @@ def cmd_report(args) -> int:
         return [name, v["bets"], f"{v['wins']}-{v['losses']}-{v['pushes']}", _pct(v["win_rate"]), _pct(v["expected_win_rate"]),
                 _sign(v["units"], 2), _sign(v["roi_pct"]), (f"{1.96 * v['roi_se_pct']:.0f}" if v["roi_se_pct"] is not None and v["bets"] >= 10 else "n/a"), _sign(v["avg_ev_pct"])]
     o = rep["overall"]
+<<<<<<< HEAD
     section("Overall" if not picks_only else "Overall: every pick")
     table(["", *cols], [row("all graded picks" if picks_only else "all graded rows", o)], al)
     if not picks_only:
@@ -492,10 +534,25 @@ def cmd_report(args) -> int:
     section("By market")
     table(["market", *cols], [row(k, v) for k, v in rep["by_kind"].items()], al)
     section("By side (which side the model picks, and how each side performed)")
+=======
+    section("Overall")
+    table(["", *cols], [row("all graded bets", o)], al)
+    print("  Note: this row includes BOTH sides of every line the program evaluated, so even a model with no edge shows a slightly negative ROI")
+    print("  (roughly the sportsbook's built-in margin, about -4% to -5% at -110). The flagged section below is the one that measures the strategy.")
+    if rep.get("flagged"):
+        section(f"Flagged value bets only (claimed EV >= {rep['min_ev']:g}%): the bets the program would actually recommend")
+        table(["", *cols], [row("flagged", rep["flagged"])], al)
+    else:
+        print(f"\n  No graded bet had claimed EV >= {rep['min_ev']:g}% yet.")
+    section("By market")
+    table(["market", *cols], [row(k, v) for k, v in rep["by_kind"].items()], al)
+    section("By side (is one direction doing better than the other?)")
+>>>>>>> 70c7a466080363221144ffdb48ce1198fc17722b
     table(["bet type", *cols], [row(k, v) for k, v in rep["by_side"].items()], al)
     section("By claimed-EV bucket (a working model should do better as claimed EV rises)")
     table(["claimed EV", *cols], [row(k, v) for k, v in rep["by_ev_bucket"].items()], al)
 
+<<<<<<< HEAD
     section("Lean check (does the model pile onto one side?)")
     lean = rep["lean"]
     if not lean:
@@ -527,15 +584,30 @@ def cmd_report(args) -> int:
     elif "price_clv_n" in o:
         verdict = "beating the close" if o["price_clv_pts"] > 0 else "behind the close"
         print(f"  Price CLV: {_sign(o['price_clv_pts'], 2)} implied-probability points over {o['price_clv_n']} picks  ({verdict}).")
+=======
+    section("Closing-line value (did the market move toward our side after we bet?)")
+    only_one_snapshot = "price_clv_n" in o and abs(o["price_clv_pts"]) < 1e-9 and o.get("line_unchanged_pct", 100) >= 99.9
+    if only_one_snapshot:
+        print("  Not informative yet: the latest odds on file are the same ones the bets were logged from, so nothing can have moved.")
+        print("  To measure it, pull odds again close to tip-off (`python cli.py odds --force`) BEFORE running `grade`.")
+    elif "price_clv_n" in o:
+        verdict = "beating the close" if o["price_clv_pts"] > 0 else "behind the close"
+        print(f"  Price CLV: {_sign(o['price_clv_pts'], 2)} implied-probability points over {o['price_clv_n']} bets  ({verdict}).")
+>>>>>>> 70c7a466080363221144ffdb48ce1198fc17722b
         print("  Positive means the price we got was better than the last price we saw; beating the close consistently is the best early sign of a real edge.")
     else:
         print("  Not available yet: closing prices come from later odds pulls. Run `python cli.py odds` shortly before games start so a late snapshot exists.")
     if "line_n" in o and not only_one_snapshot:
+<<<<<<< HEAD
         print(f"  Line movement: the number moved in our favor on {o['line_beat_pct']:.0f}% of {o['line_n']} spread/total/prop picks ({o['line_unchanged_pct']:.0f}% did not move).")
+=======
+        print(f"  Line movement: the number moved in our favor on {o['line_beat_pct']:.0f}% of {o['line_n']} spread/total/prop bets ({o['line_unchanged_pct']:.0f}% did not move).")
+>>>>>>> 70c7a466080363221144ffdb48ce1198fc17722b
 
     section("How much can you trust this?")
     n, se = o["bets"], o["roi_se_pct"]
     if n < 30:
+<<<<<<< HEAD
         print(f"  Only {n} graded picks: far too few to conclude anything. A handful of results is mostly luck; the +/-95% column shows n/a below 10 bets.")
     if se is not None:
         lo, hi = o["roi_pct"] - 1.96 * se, o["roi_pct"] + 1.96 * se
@@ -587,12 +659,43 @@ def cmd_report(args) -> int:
     for r in recent:
         parts = str(r["game_key"]).split("_")
         away_home = parts[1:3] if len(parts) >= 3 else [str(r["game_key"]), ""]
+=======
+        print(f"  Only {n} graded bets: far too few to conclude anything. A handful of results is mostly luck; the +/-95% column shows n/a below 10 bets.")
+    if se is not None:
+        lo, hi = o["roi_pct"] - 1.96 * se, o["roi_pct"] + 1.96 * se
+        needed = int((19.6 * max(o["roi_se_pct"] * sqrt_n(n) / 100, 0.9)) ** 2)
+        print(f"  With {n} graded bets the 95% range for true ROI is roughly {lo:+.0f}% to {hi:+.0f}% (observed {o['roi_pct']:+.1f}%).")
+        print(f"  Narrowing that to about +/-10% takes roughly {needed} bets at these odds. Until then, treat ROI as noise and watch calibration and CLV instead.")
+    if rep.get("flagged"):
+        fl = rep["flagged"]
+        if fl["bets"] < 30:
+            print(f"  Flagged bets: only {fl['bets']}. A flagged ROI of {fl['roi_pct']:+.0f}% on that few bets says almost nothing either way.")
+    c = rep.get("calibration")
+    section("Calibration (is the model better than the market's own price?)")
+    if c:
+        print(f"  Log loss (lower is better): model {c['logloss_model']:.4f}, market {c['logloss_market']:.4f}; best blend puts {c['best_market_weight']:.0%} weight on the market ({c['n']} bets).")
+        print("  " + ("Enough bets to consider changing GAME_MARKET_WEIGHT / PROP_MARKET_WEIGHT in config.py." if c["enough_data"]
+                      else "Fewer than 300 bets: too noisy to change the market-blend settings yet."))
+    else:
+        print("  Needs at least 30 graded bets that have a market probability (not shown with --kind/--since filters).")
+
+    recent = rep["recent"] if args.all else rep["recent"][:15]
+    section(f"Graded bets ({'all' if args.all else 'most recent 15; add --all for every bet'}, {len(rep['recent'])} total)")
+    rows = []
+    for r in recent:
+        away_home = r["game_key"].split("_")[1:3]
+>>>>>>> 70c7a466080363221144ffdb48ce1198fc17722b
         pn = r.get("player_name")
         who = (pn + " " if isinstance(pn, str) and pn else "") + r["side"]
         line = "" if r["line"] is None or r["line"] != r["line"] else (f"{r['line']:+g}" if r["kind"] == "spread" else f"{r['line']:g}")
         act = "" if r["actual"] is None or r["actual"] != r["actual"] else f"{r['actual']:g}"
+<<<<<<< HEAD
         rows.append([r["game_date"], (f"{away_home[0]}@{away_home[1]}" if away_home[1] else away_home[0]), r["kind"], f"{who} {line}".strip(), f"{r['price']:+d}", _pct(r["blended_prob"], 0), _sign(r["ev_pct"]), r["result"].upper(), act])
     table(["game date", "game", "market", "pick", "price", "p(win)%", "EV%", "result", "actual"], rows, "lllrrrrll")
+=======
+        rows.append([r["game_date"], f"{away_home[0]}@{away_home[1]}", r["kind"], f"{who} {line}".strip(), f"{r['price']:+d}", _pct(r["blended_prob"], 0), _sign(r["ev_pct"]), r["result"].upper(), act])
+    table(["game date", "game", "market", "bet", "price", "p(win)%", "EV%", "result", "actual"], rows, "lllrrrrll")
+>>>>>>> 70c7a466080363221144ffdb48ce1198fc17722b
     print("  'actual' = the margin for that side (spread/moneyline), the game total, or the player's points.")
     return 0
 
@@ -622,7 +725,10 @@ def cmd_status(args) -> int:
         if s["last_date"] and gm.trained_through:
             lag = (date.fromisoformat(s["last_date"]) - date.fromisoformat(gm.trained_through)).days
             print(f"  Data is {lag} days newer than the models." + ("  Consider retraining (ratings still refresh daily; trained parts are fitted error sizes and the player model)." if lag > 14 else ""))
+<<<<<<< HEAD
     print("  Corrections in effect (from `backtest`): " + ("; ".join(s["corrections"]) if s["corrections"] else "none"))
+=======
+>>>>>>> 70c7a466080363221144ffdb48ce1198fc17722b
     section("Odds")
     o = s["odds"]
     print(f"  Source: {o['source'] or 'none'}   last pulled: {_ago(o['last_refresh_minutes'])}   API key: {'set' if o['api_key_configured'] else 'NOT set'}"
@@ -635,6 +741,7 @@ def cmd_status(args) -> int:
     return 0
 
 
+<<<<<<< HEAD
 def _fmt_dir(before, after, lower_better):
     if lower_better is None or before is None or after is None:
         return ""
@@ -836,6 +943,8 @@ def _backtest_week(eng, args, say) -> int:
     return 0
 
 
+=======
+>>>>>>> 70c7a466080363221144ffdb48ce1198fc17722b
 def cmd_setup(args) -> int:
     """Everything needed for a first run, stopping with a clear message at the first thing that is not working."""
     import argparse as _ap
@@ -886,6 +995,7 @@ def main(argv=None) -> int:
         p.add_argument("--date"); p.add_argument("--top", type=int, default=6); p.add_argument("--all", action="store_true")
         p.add_argument("--no-props", action="store_true"); p.add_argument("--no-log", action="store_true"); p.set_defaults(fn=fn)
     sub.add_parser("grade").set_defaults(fn=cmd_grade)
+<<<<<<< HEAD
     p = sub.add_parser("backtest", help="replay history, find corrections, verify them on later games")
     p.add_argument("--week", action="store_true", help="replay one week day by day instead of the full history")
     p.add_argument("--ending", metavar="YYYY-MM-DD", help="with --week: last day of the week (default: latest data)")
@@ -894,13 +1004,19 @@ def main(argv=None) -> int:
     p.add_argument("--no-tune", action="store_true", help="skip the slower team-rating parameter search")
     p.add_argument("--seasons", type=int, help="limit to the most recent N seasons")
     p.set_defaults(fn=cmd_backtest)
+=======
+>>>>>>> 70c7a466080363221144ffdb48ce1198fc17722b
     p = sub.add_parser("report", help="ROI, calibration and closing-line value from graded bets")
     p.add_argument("--since", metavar="YYYY-MM-DD", help="only games on/after this date")
     p.add_argument("--kind", choices=["spread", "total", "moneyline", "prop"], help="only one market")
     p.add_argument("--min-ev", type=float, default=None, help="claimed-EV%% threshold for 'flagged' bets (default from config)")
+<<<<<<< HEAD
     p.add_argument("--all", action="store_true", help="list every graded pick, not just the latest 15")
     p.add_argument("--both-sides", action="store_true", help="count both sides of every line (old behaviour; wins and losses cancel)")
     p.add_argument("--apply-weights", action="store_true", help="save the market-blend weights the graded picks support (needs 150+ picks)")
+=======
+    p.add_argument("--all", action="store_true", help="list every graded bet, not just the latest 15")
+>>>>>>> 70c7a466080363221144ffdb48ce1198fc17722b
     p.set_defaults(fn=cmd_report)
     sub.add_parser("status").set_defaults(fn=cmd_status)
     args = ap.parse_args(argv)

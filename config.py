@@ -1,151 +1,152 @@
 """
-Centralized configuration for the NBA Prediction System.
+Centralised configuration.
 
-All tunable parameters, thresholds, and constants live here.
-Import from this module instead of hardcoding values across files.
+Everything tunable lives here. Nothing in this file touches the network.
+Secrets (the odds API key) are NOT stored here: set the ODDS_API_KEY environment
+variable or put it in a local `.env` file.
 """
 
+from __future__ import annotations
+
+import os
+
+# joblib/loky shells out to `wmic` to count physical cores; modern Windows no longer ships it, which prints a
+# scary (harmless) traceback. Supplying the count up front silences it on every platform.
+os.environ.setdefault("LOKY_MAX_CPU_COUNT", str(os.cpu_count() or 1))
+
 from dataclasses import dataclass, field
-from typing import Dict, List
+from datetime import date
+from typing import Dict, Optional, Tuple
 
 
-# ── League Baseline Constants ────────────────────────────────────────────────
+# ── Season helpers ───────────────────────────────────────────────────────────
+def season_label(start_year: int) -> str:
+    """2025 -> '2025-26'."""
+    return f"{start_year}-{(start_year + 1) % 100:02d}"
+
+
+def season_for_date(d: Optional[date] = None) -> str:
+    """NBA season label a calendar date belongs to (season rolls over in July)."""
+    d = d or date.today()
+    start = d.year if d.month >= 7 else d.year - 1
+    return season_label(start)
+
+
+def recent_seasons(n: int, as_of: Optional[date] = None) -> Tuple[str, ...]:
+    """The last `n` season labels ending with the one containing `as_of`, oldest first."""
+    as_of = as_of or date.today()
+    end = as_of.year if as_of.month >= 7 else as_of.year - 1
+    return tuple(season_label(y) for y in range(end - n + 1, end + 1))
+
+
+# ── League baselines (only used as priors when there is no data yet) ─────────
 @dataclass(frozen=True)
 class LeagueDefaults:
-    """League-wide baseline statistics (updated each season)."""
-    SEASON: str = "2024-25"
-    AVG_TEAM_SCORE: float = 113.0
-    AVG_PACE: float = 100.0
+    SEASON: str = field(default_factory=season_for_date)
+    AVG_TEAM_SCORE: float = 114.0
+    AVG_PACE: float = 99.0                 # possessions per team per game
     AVG_OFF_RATING: float = 115.0
-    AVG_DEF_RATING: float = 115.0
-    AVG_EFG_PCT: float = 0.54
-    AVG_TS_PCT: float = 0.57
-    AVG_AST_RATIO: float = 24.0
-    AVG_REB_RATE: float = 50.0
-    AVG_FG3_PCT: float = 0.363
-    HOME_COURT_ADVANTAGE: float = 3.5  # points
-    GAMES_PER_SEASON: int = 82
-    SEASON_START_MONTH: int = 10  # October
-    SEASON_END_MONTH: int = 4    # April
+    HOME_COURT_ADVANTAGE: float = 2.5      # points of margin (prior; the model fits its own)
+    SEASON_START_MONTH: int = 10
 
 
-# ── API & Networking ─────────────────────────────────────────────────────────
+# ── Data warehouse & providers ───────────────────────────────────────────────
 @dataclass(frozen=True)
-class APIConfig:
-    """NBA API request configuration."""
-    MIN_REQUEST_INTERVAL: float = 2.5   # seconds between requests
-    MAX_JITTER: float = 0.5             # random jitter added to interval
-    MAX_RETRIES: int = 3                # retries on transient failures
-    RETRY_BACKOFF_BASE: float = 2.0     # exponential backoff base
-    REQUEST_TIMEOUT: int = 30           # seconds
-    USER_AGENTS: tuple = (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36",
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 Safari/605.1.15",
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0",
+class DataConfig:
+    DB_PATH: str = "data/nba_warehouse.db"
+    REQUEST_TIMEOUT: float = 20.0
+    MIN_REQUEST_INTERVAL: float = 0.35     # polite delay between calls to the same host
+    MAX_RETRIES: int = 3
+    RETRY_BACKOFF: float = 1.5
+    # Order matters: the first provider that answers wins, the rest are fallbacks.
+    PROVIDERS: Tuple[str, ...] = ("espn", "nba_cdn")
+    BACKFILL_SEASONS: int = 3
+    UPDATE_DAYS_BACK: int = 4              # re-check recent days on every update
+    USER_AGENT: str = (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/124.0 Safari/537.36"
     )
 
 
-# ── Caching ──────────────────────────────────────────────────────────────────
+# ── Odds ─────────────────────────────────────────────────────────────────────
 @dataclass(frozen=True)
-class CacheConfig:
-    """SQLite cache TTLs and cleanup rules."""
-    DB_PATH: str = "nba_cache.db"
-    TEAM_GAMES_TTL_HOURS: int = 6       # re-fetch after game nights
-    PLAYER_GAMES_TTL_HOURS: int = 6
-    ADVANCED_STATS_TTL_HOURS: int = 12
-    CLEANUP_AFTER_DAYS: int = 7
+class OddsConfig:
+    API_KEY_ENV: str = "ODDS_API_KEY"
+    SPORT_KEY: str = "basketball_nba"
+    TARGET_BOOK: str = "draftkings"        # the book you actually bet at
+    REGIONS: str = "us"                    # all US books -> consensus at no extra credit cost
+    GAME_MARKETS: Tuple[str, ...] = ("h2h", "spreads", "totals")
+    PROP_MARKETS: Tuple[str, ...] = ("player_points",)
+    PROP_LOOKAHEAD_HOURS: int = 36         # only pull props for games starting soon
+    MAX_PROP_EVENTS: int = 15              # hard cap on per-event prop calls per refresh
+    MIN_REFRESH_MINUTES: int = 60          # don't re-pull more often than this (saves quota)
+    # ESPN's scoreboard embeds one book's game lines; used only if no API key is set.
+    ENABLE_ESPN_FALLBACK: bool = True
 
 
-# ── Model Training ───────────────────────────────────────────────────────────
+# ── Modelling ────────────────────────────────────────────────────────────────
 @dataclass(frozen=True)
-class TrainingConfig:
-    """Model training hyperparameters and thresholds."""
-    SEASONS: tuple = ("2022-23", "2023-24", "2024-25")
-    SEASON_WEIGHTS: Dict[str, float] = field(default_factory=lambda: {
-        "2022-23": 0.5,
-        "2023-24": 0.8,
-        "2024-25": 1.0,
-    })
-    MIN_TEAM_TRAINING_SAMPLES: int = 80
-    MIN_PLAYER_TRAINING_SAMPLES: int = 50
-    MIN_GAMES_FOR_FEATURES: int = 5
-    ROLLING_WINDOWS: tuple = (3, 5, 10, 15)
-    FEATURE_SELECTION_K_TEAM: int = 50
-    FEATURE_SELECTION_K_PLAYER: int = 30
-    CV_SPLITS: int = 5
+class ModelConfig:
+    MODELS_DIR: str = "models"
+    TRAIN_SEASONS: int = 3
+    # Team ratings (walk-forward, time-decayed ridge).
+    # Defaults match values adopted by `cli.py backtest` on holdout data
+    # (half_life 50→100, ridge 25→10, carry 0.55→0.3). models/tuning.json can still override.
+    RATING_HALF_LIFE_DAYS: float = 100.0
+    RATING_RIDGE: float = 10.0             # shrinkage of off/def ratings toward the prior
+    PACE_RIDGE: float = 10.0
+    PRIOR_SEASON_CARRY: float = 0.3        # fraction of last season's ratings carried over
+    # Game-level uncertainty. These are priors; training replaces them with fitted values.
+    DEFAULT_MARGIN_SIGMA: float = 12.5
+    DEFAULT_TOTAL_SIGMA: float = 18.0
+    MIN_TEAM_GAMES_FOR_EVAL: int = 15      # ignore early-season games when scoring accuracy
+    # Players
+    PLAYER_EWM_HALFLIFE_GAMES: float = 12.0  # was 8; longer window stabilizes rates
+    MIN_PRIOR_GAMES: int = 8
+    MIN_TRAIN_MINUTES: float = 8.0
+    ROTATION_MIN_MINUTES: float = 12.0
+    CV_FOLDS: int = 4
     RANDOM_STATE: int = 42
-    MODELS_DIR: str = "enhanced_models"
 
 
-# ── Prediction ───────────────────────────────────────────────────────────────
-@dataclass(frozen=True)
-class PredictionConfig:
-    """Prediction pipeline settings."""
-    MAX_ROSTER_PLAYERS: int = 12
-    DEFAULT_TEAM_STD: float = 12.0
-    DEFAULT_PLAYER_POINTS_STD: float = 5.0
-    DEFAULT_PLAYER_MINUTES_STD: float = 5.0
-    BACK_TO_BACK_PENALTY: float = 3.0     # points
-    LONG_REST_BONUS: float = 1.5          # points
-    LONG_REST_THRESHOLD_DAYS: int = 3
-    LATE_SEASON_THRESHOLD: float = 0.8    # fraction of season
-    LATE_SEASON_PENALTY: float = 2.0
-    MAX_HOME_ADVANTAGE_CAP: float = 8.0
-    MAX_TREND_ADJUSTMENT: float = 5.0
-    MIN_CONFIDENCE: float = 0.1
-    MAX_CONFIDENCE: float = 0.95
-
-
-# ── Betting & EV ─────────────────────────────────────────────────────────────
+# ── Betting math ─────────────────────────────────────────────────────────────
 @dataclass(frozen=True)
 class BettingConfig:
-    """Betting analysis parameters."""
     DEFAULT_ODDS: int = -110
-    EV_THRESHOLD_PCT: float = 3.0        # minimum EV% to flag as value
+    EV_THRESHOLD_PCT: float = 2.5          # flag as value above this EV% (slightly lower after heavy market blend)
     HIGH_EV_THRESHOLD_PCT: float = 8.0
-    CONFIDENCE_THRESHOLD: float = 0.6
-    KELLY_FRACTION: float = 0.25         # quarter Kelly for safety
-    MAX_KELLY_BET_PCT: float = 5.0       # max 5% of bankroll
-    ODDS_REGRESSION_STRENGTH: float = 0.35  # blend toward market
-    # Dynamic regression: confident predictions get less regression
-    MIN_REGRESSION: float = 0.15
-    MAX_REGRESSION: float = 0.55
-    SIMULATION_SAMPLES: int = 10_000
+    KELLY_FRACTION: float = 0.25           # quarter Kelly
+    MAX_KELLY_BET_PCT: float = 5.0
+    # Props & games: blend final probability toward the de-vigged market probability.
+    # 0 = trust the model fully, 1 = just echo the market. Calibrate with `cli.py report`.
+    # Defaults raised after graded-pick calibration (props best weight ≈90%, games ≈70%).
+    # models/tuning.json overrides these when present.
+    PROP_MARKET_WEIGHT: float = 0.90
+    GAME_MARKET_WEIGHT: float = 0.70
+    # Do not recommend a moneyline/spread side the model itself gives < this probability.
+    # Stops longshot "value" bets (e.g. 26% dog at +450) that are +EV on paper but historically lost.
+    # Pure EV on every side is still visible with `slate --all`.
+    MIN_MODEL_PROB_TO_FLAG: float = 0.42
+    # When a prop has no two-way market fair probability, still shrink the model toward 50%
+    # so we do not claim 30%+ EV on a pure-model number.
+    PROP_NO_MARKET_SHRINK: float = 0.50
 
 
-# ── Player Props ─────────────────────────────────────────────────────────────
 @dataclass(frozen=True)
 class PropsConfig:
-    """Player props prediction settings."""
-    MIN_RECENT_GAMES: int = 5
-    RECENT_WEIGHT: float = 0.7
-    HOME_BOOST: float = 1.03
-    PTS_PER_MIN_BOUNDS: tuple = (0.15, 1.2)
-    # Relative std by minutes tier
-    STD_LOW_MINUTES: float = 0.45    # < 15 min
-    STD_MID_MINUTES: float = 0.37    # 15-25 min
-    STD_HIGH_MINUTES: float = 0.28   # 25-32 min
-    STD_STAR_MINUTES: float = 0.24   # > 32 min
-    MIN_POINTS_STD: float = 3.0
+    DEFAULT_NB_R: float = 18.0             # negative-binomial dispersion prior (fitted at training)
 
 
-# ── Frontend ─────────────────────────────────────────────────────────────────
 @dataclass(frozen=True)
-class UIConfig:
-    """Frontend display settings."""
-    ODDS_FILE: str = "draftkings_nba_odds.csv"
-    PROPS_FILE: str = "draftkings_player_points_props.csv"
-    UPDATE_INTERVAL_HOURS: int = 4
-    MAX_PLAYERS_DISPLAY: int = 10
-    CACHE_TTL_SECONDS: int = 300  # Streamlit cache TTL
+class PredictionConfig:
+    MAX_PLAYER_SCALE: float = 1.12         # clamp when reconciling player sums to the team total
+    MIN_PLAYER_SCALE: float = 0.88
 
 
-# ── Instantiate singletons ──────────────────────────────────────────────────
 LEAGUE = LeagueDefaults()
-API = APIConfig()
-CACHE = CacheConfig()
-TRAINING = TrainingConfig()
-PREDICTION = PredictionConfig()
+DATA = DataConfig()
+ODDS = OddsConfig()
+MODEL = ModelConfig()
 BETTING = BettingConfig()
 PROPS = PropsConfig()
-UI = UIConfig()
+PREDICTION = PredictionConfig()
